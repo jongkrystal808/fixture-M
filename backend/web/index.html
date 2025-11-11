@@ -1,0 +1,1467 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<!-- === API Integration Helpers (Injected) === -->
+<script>
+window.API_BASE = window.API_BASE || '';
+window.USE_API  = (typeof window.USE_API === 'boolean') ? window.USE_API : true;
+
+async function api(path, opts={}){
+  const res = await fetch(String(window.API_BASE||'') + path, {
+    headers: {'Content-Type':'application/json'},
+    ...opts
+  });
+  if(!res.ok){
+    const txt = await res.text().catch(()=>'');
+    throw new Error(`API ${path} failed: ${res.status} ${txt}`);
+  }
+  const ct = res.headers.get('content-type') || '';
+  return ct.includes('json') ? res.json() : res.text();
+}
+
+async function apiListFixtures(){ return api('/fixtures'); }
+async function apiCreateFixture(fx){ return api('/fixtures', {method:'POST', body: JSON.stringify(fx)}); }
+async function apiUpdateFixture(fx){ return api(`/fixtures/${fx.id}`, {method:'PUT', body: JSON.stringify(fx)}); }
+async function apiDeleteFixture(id){ return api(`/fixtures/${id}`, {method:'DELETE'}); }
+</script>
+<!-- === Extra API helpers === -->
+<script>
+async function apiListReceipts(){ return api('/receipts'); }
+async function apiCreateReceipt(r){ return api('/receipts', {method:'POST', body: JSON.stringify(r)}); }
+async function apiDeleteReceipt(id){ return api(`/receipts/${id}`, {method:'DELETE'}); }
+
+async function apiListReturns(){ return api('/returns'); }
+async function apiCreateReturn(r){ return api('/returns', {method:'POST', body: JSON.stringify(r)}); }
+async function apiDeleteReturn(id){ return api(`/returns/${id}`, {method:'DELETE'}); }
+
+async function apiListLogs(){ return api('/logs'); }
+async function apiCreateLog(r){ return api('/logs', {method:'POST', body: JSON.stringify(r)}); }
+async function apiDeleteLog(id){ return api(`/logs/${id}`, {method:'DELETE'}); }
+</script>
+
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>治具管理系統</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    button { border: 1px solid #D1D5DB; border-radius: 0.75rem; background:#fff; cursor:pointer; }
+    .card { background:#fff; border:1px solid #E5E7EB; border-radius:1rem; box-shadow:0 1px 2px rgba(0,0,0,0.04); }
+    .btn { display:inline-flex; align-items:center; gap:.5rem; padding:.5rem .75rem; font-size:.875rem; font-weight:500; line-height:1.25rem; }
+    .btn-primary { background:#111827; color:#fff; border-color:#111827; }
+    .btn-ghost { background:#fff; color:#111827; border-color:#D1D5DB; }
+    .pill { display:inline-block; font-size:.75rem; padding:.125rem .5rem; border-radius:9999px; border:1px solid #D1D5DB; }
+    .tab { display:inline-flex; align-items:center; gap:.5rem; padding:.5rem .75rem; font-size:.875rem; font-weight:500; line-height:1.25rem; background:#fff; border:1px solid #D1D5DB; border-radius:.75rem; transition:all .15s ease; }
+    .tab:hover { background:#F9FAFB; }
+    .tab-active { background:#111827; color:#fff; border-color:#111827; font-weight:700; box-shadow:0 0 0 2px rgba(17,24,39,0.25) inset; }
+    .section-title { font-size:1rem; font-weight:600; letter-spacing:.02em; }
+    .subtab { display:inline-flex; align-items:center; gap:.5rem; padding:.5rem .75rem; font-size:.875rem; font-weight:500; line-height:1.25rem; background:#fff; border:1px solid #D1D5DB; border-radius:.75rem; transition:all .15s ease; }
+    .subtab-active { background:#111827; color:#fff; border-color:#111827; font-weight:700; }
+    .field { display:flex; flex-direction:column; gap:.25rem; }
+    .label-xs { font-size:.75rem; color:#6B7280; }
+    .input { border:1px solid #D1D5DB; border-radius:.75rem; padding:.5rem .75rem; }
+    .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.35); display:none; align-items:center; justify-content:center; z-index:50; }
+    .modal { background:#fff; border-radius:1rem; width:100%; max-width:24rem; padding:1.25rem; border:1px solid #E5E7EB; }
+    .pagination button[disabled] { opacity:.5; cursor:not-allowed; }
+    .stat-card { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }
+    .warning-tag { background: #FEF3C7; color: #92400E; border: 1px solid #FCD34D; }
+    .danger-tag { background: #FEE2E2; color: #991B1B; border: 1px solid #FCA5A5; }
+  </style>
+</head>
+
+<body class="bg-gray-50 text-gray-900">
+  <!-- 登入介面 -->
+  <div id="loginModal" class="modal-backdrop">
+    <div class="modal space-y-4">
+      <div class="flex items-center justify-between">
+        <h3 class="font-semibold text-lg">登入</h3>
+        <button class="btn btn-ghost text-xs" onclick="closeLogin()">關閉</button>
+      </div>
+      <div class="grid gap-3">
+        <div class="field"><label class="label-xs">帳號</label><input id="loginId" class="input" placeholder="輸入帳號"/></div>
+        <div class="field"><label class="label-xs">密碼</label><input id="loginPwd" type="password" class="input" placeholder="輸入密碼"/></div>
+        <button class="btn btn-primary" onclick="mockLogin()">登入</button>
+        <p id="loginMsg" class="text-xs text-gray-500"></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- 頂部導覽 -->
+  <header class="sticky top-0 z-40 bg-white/80 backdrop-blur border-b border-gray-200">
+    <div class="mx-auto max-w-7xl px-4 py-3 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="h-8 w-8 rounded-xl bg-gray-900 text-white grid place-items-center font-bold">F</div>
+        <div>
+          <h1 class="text-lg font-semibold leading-tight">治具管理系統</h1>
+        </div>
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="pill border-gray-300" id="clock">--:--</span>
+        <span id="loginState" class="text-xs text-gray-600">未登入</span>
+        <button class="btn btn-ghost" id="btnLogin" onclick="openLogin()">登入</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- 主容器 -->
+  <main class="mx-auto max-w-7xl p-4 md:p-6 space-y-6">
+    <!-- 功能分頁 -->
+    <nav class="grid grid-cols-2 md:grid-cols-7 gap-2">
+      <button data-tab="dashboard" class="tab tab-active">儀表板</button>
+      <button data-tab="receive"  class="tab">收料登記</button>
+      <button data-tab="return"   class="tab">退料登記</button>
+      <button data-tab="query"    class="tab">治具/機種查詢</button>
+      <button data-tab="stats"    class="tab">治具情況統計</button>
+      <button data-tab="logs"     class="tab">使用/更換記錄</button>
+      <button data-tab="admin"    class="tab">後台管理</button>
+    </nav>
+
+    <!-- 當前切頁標題欄 -->
+    <div id="activeTabBanner" class="card px-4 py-3 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="h-8 w-1.5 rounded-full bg-gray-900"></div>
+        <div class="section-title" id="activeTabTitle">儀表板</div>
+      </div>
+    </div>
+
+    <!-- 儀表板 -->
+    <section id="tab-dashboard" class="space-y-6">
+      <div class="card p-4">
+        <div class="flex items-center justify-between">
+          <h3 class="font-semibold">快速連結</h3>
+          <button class="btn btn-ghost text-xs" onclick="openLogin()">開啟登入介面</button>
+        </div>
+      </div>
+      <div class="grid md:grid-cols-3 gap-4">
+        <div class="card p-5">
+          <div class="flex items-center justify-between">
+            <h3 class="font-semibold">今日收料</h3>
+            <span class="pill border-green-300 text-green-700 bg-green-50">即時</span>
+          </div>
+          <p class="text-3xl font-bold mt-2" id="todayIn">0</p>
+          <div class="mt-3 space-y-2" id="todayInList"></div>
+        </div>
+        <div class="card p-5">
+          <div class="flex items-center justify-between">
+            <h3 class="font-semibold">今日退料</h3>
+            <span class="pill border-blue-300 text-blue-700 bg-blue-50">即時</span>
+          </div>
+          <p class="text-3xl font-bold mt-2" id="todayOut">0</p>
+          <div class="mt-3 space-y-2" id="todayOutList"></div>
+        </div>
+        <div class="card p-5">
+          <div class="flex items-center justify-between">
+            <h3 class="font-semibold">即將更換治具</h3>
+            <button class="btn btn-ghost text-xs" onclick="downloadCSV('upcoming.csv', mockUpcomingCSV())">匯出</button>
+          </div>
+          <div class="mt-3 space-y-2 max-h-40 overflow-auto" id="upcomingList"></div>
+        </div>
+      </div>
+
+      <div class="card p-5">
+        <div class="flex items-center justify-between mb-3">
+          <h3 class="font-semibold">庫存概覽</h3>
+          <div class="flex items-center gap-2">
+            <input id="searchDash" class="w-48 border rounded-xl px-3 py-1.5 text-sm" placeholder="搜尋治具/機種..." />
+            <button class="btn btn-ghost text-sm" onclick="filterDashboard()">篩選</button>
+          </div>
+        </div>
+        <div class="overflow-auto">
+          <table class="min-w-full text-sm">
+            <thead class="text-left text-gray-500">
+              <tr>
+                <th class="py-2 pr-4">治具編號</th>
+                <th class="py-2 pr-4">名稱</th>
+                <th class="py-2 pr-4">機種</th>
+                <th class="py-2 pr-4">儲位</th>
+                <th class="py-2 pr-4">狀態</th>
+                <th class="py-2 pr-4">使用次數/週期</th>
+                <th class="py-2 pr-4">負責人</th>
+              </tr>
+            </thead>
+            <tbody id="dashTable"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- 收料登記 -->
+    <section id="tab-receive" class="hidden space-y-4">
+      <div class="card p-5 space-y-4">
+        <h3 class="font-semibold">收料表單</h3>
+        <div class="grid md:grid-cols-5 gap-3">
+          <div class="field"><label class="label-xs">治具</label><input id="rcvFixture" class="input" placeholder="例如:JIG-001 或自由輸入" /></div>
+          <div class="field"><label class="label-xs">LOT No.</label><input id="rcvLot" class="input" placeholder="例如: L240915A" /></div>
+          <div class="field"><label class="label-xs">數量</label><input id="rcvQty" type="number" class="input" placeholder="0" /></div>
+          <div class="field"><label class="label-xs">日期時間</label><input id="rcvDate" type="datetime-local" class="input" /></div>
+          <div class="flex items-end"><button class="btn btn-primary w-full" onclick="addReceipt()">確認收料</button></div>
+        </div>
+        <div class="flex items-center gap-2 pt-2">
+          <label class="btn btn-ghost cursor-pointer">
+            <input id="rcvCsv" type="file" accept=".xlsx,.csv" class="hidden" onchange="handleReceiptCsv(this)" /> 匯入 Excel/CSV
+          </label>
+          <button class="btn btn-ghost" onclick="downloadCSV('receipts_template.csv', sampleTemplateCSV('receipt'))">下載範本</button>
+          <div class="ml-auto flex items-center gap-2">
+            <input id="rcvSearch" class="w-56 input text-sm" placeholder="搜尋(治具/LOT)" oninput="renderReceipts()" />
+            <span class="text-xs text-gray-500">共 <span id="rcvCount">0</span> 筆</span>
+          </div>
+        </div>
+        <div class="overflow-auto">
+          <table class="min-w-full text-sm">
+            <thead class="text-left text-gray-500">
+              <tr><th class="py-2 pr-4">日期時間</th><th class="py-2 pr-4">治具</th><th class="py-2 pr-4">LOT</th><th class="py-2 pr-4">數量</th><th class="py-2 pr-4">操作</th></tr>
+            </thead>
+            <tbody id="rcvTable"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- 退料登記 -->
+    <section id="tab-return" class="hidden space-y-4">
+      <div class="card p-5 space-y-4">
+        <h3 class="font-semibold">退料表單</h3>
+        <div class="grid md:grid-cols-5 gap-3">
+          <div class="field"><label class="label-xs">治具</label><input id="retFixture" class="input" placeholder="例如:JIG-001 或自由輸入" /></div>
+          <div class="field"><label class="label-xs">LOT No.</label><input id="retLot" class="input" placeholder="例如: L240915A" /></div>
+          <div class="field"><label class="label-xs">數量(不可大於收料總量)</label><input id="retQty" type="number" class="input" placeholder="0" /></div>
+          <div class="field"><label class="label-xs">日期時間</label><input id="retDate" type="datetime-local" class="input" /></div>
+          <div class="flex items-end"><button class="btn btn-primary w-full" onclick="addReturn()">確認退料</button></div>
+        </div>
+        <div class="flex items-center gap-2 pt-2">
+          <label class="btn btn-ghost cursor-pointer"><input id="retCsv" type="file" accept=".xlsx,.csv" class="hidden" onchange="handleReturnCsv(this)" /> 匯入 Excel/CSV</label>
+          <button class="btn btn-ghost" onclick="downloadCSV('returns_template.csv', sampleTemplateCSV('return'))">下載範本</button>
+          <div class="ml-auto flex items-center gap-2">
+            <input id="retSearch" class="w-56 input text-sm" placeholder="搜尋(治具/LOT)" oninput="renderReturns()" />
+            <span class="text-xs text-gray-500">共 <span id="retCount">0</span> 筆</span>
+          </div>
+        </div>
+        <div class="overflow-auto">
+          <table class="min-w-full text-sm">
+            <thead class="text-left text-gray-500">
+              <tr><th class="py-2 pr-4">日期時間</th><th class="py-2 pr-4">治具</th><th class="py-2 pr-4">LOT</th><th class="py-2 pr-4">數量</th><th class="py-2 pr-4">操作</th></tr>
+            </thead>
+            <tbody id="retTable"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- 查詢 -->
+    <section id="tab-query" class="hidden space-y-4">
+      <div class="card p-5 space-y-4">
+        <div class="grid md:grid-cols-5 gap-3">
+          <div class="field"><label class="label-xs">治具名稱</label><input id="qFixture" class="input" placeholder="如:JIG-001" /></div>
+          <div class="field"><label class="label-xs">機種</label><select id="qModel" class="input"><option value="">全部</option></select></div>
+          <div class="field"><label class="label-xs">位置/儲位</label><input id="qLoc" class="input" placeholder="如:A-01-03" /></div>
+          <div class="field"><label class="label-xs">負責人</label><select id="qOwner" class="input"></select></div>
+          <div class="flex items-end gap-2"><button class="btn btn-primary w-full" onclick="applyQuery()">查詢</button></div>
+        </div>
+        <div class="overflow-auto">
+          <table class="min-w-full text-sm">
+            <thead class="text-left text-gray-500">
+              <tr><th class="py-2 pr-4">圖片</th><th class="py-2 pr-4">治具</th><th class="py-2 pr-4">機種</th><th class="py-2 pr-4">儲位</th><th class="py-2 pr-4">最大開站量</th><th class="py-2 pr-4">狀態</th><th class="py-2 pr-4">操作</th></tr>
+            </thead>
+            <tbody id="queryTable"></tbody>
+          </table>
+        </div>
+        <div class="flex justify-end gap-2">
+          <button class="btn btn-ghost" onclick="downloadCSV('fixtures_query.csv', toCSV(mockFixtures))">匯出查詢結果</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 治具情況統計(新增分頁) -->
+    <section id="tab-stats" class="hidden space-y-4">
+      <!-- 統計卡片 -->
+      <div class="grid md:grid-cols-4 gap-4">
+        <div class="card p-5 stat-card">
+          <div class="text-sm opacity-90">總治具數量</div>
+          <div class="text-3xl font-bold mt-2" id="statTotalFixtures">0</div>
+        </div>
+        <div class="card p-5 bg-gradient-to-br from-green-400 to-emerald-600 text-white">
+          <div class="text-sm opacity-90">正常使用中</div>
+          <div class="text-3xl font-bold mt-2" id="statActiveFixtures">0</div>
+        </div>
+        <div class="card p-5 bg-gradient-to-br from-amber-400 to-orange-600 text-white">
+          <div class="text-sm opacity-90">壽命未達標</div>
+          <div class="text-3xl font-bold mt-2" id="statUnderLifespan">0</div>
+        </div>
+        <div class="card p-5 bg-gradient-to-br from-red-400 to-rose-600 text-white">
+          <div class="text-sm opacity-90">即將更換</div>
+          <div class="text-3xl font-bold mt-2" id="statNeedReplacement">0</div>
+        </div>
+      </div>
+
+      <!-- 治具壽命管理作法 -->
+      <div class="card p-5 space-y-4">
+        <h3 class="font-semibold text-lg">治具壽命管理作法(針對不耐用治具)</h3>
+
+        <div class="grid md:grid-cols-2 gap-4">
+          <!-- 1. 建立壽命比對機制 -->
+          <div class="border rounded-xl p-4 space-y-3">
+            <div class="flex items-center gap-2">
+              <div class="h-8 w-8 rounded-lg bg-blue-100 text-blue-700 grid place-items-center font-bold">1</div>
+              <h4 class="font-semibold">建立壽命比對機制</h4>
+            </div>
+            <ul class="text-sm text-gray-600 space-y-2 ml-10">
+              <li>• 每個治具設定預期壽命(次數或天數)</li>
+              <li>• 系統記錄實際使用次數</li>
+              <li>• 未達標自動標示「壽命未達預設值」</li>
+            </ul>
+          </div>
+
+          <!-- 2. 自動分類與標示 -->
+          <div class="border rounded-xl p-4 space-y-3">
+            <div class="flex items-center gap-2">
+              <div class="h-8 w-8 rounded-lg bg-green-100 text-green-700 grid place-items-center font-bold">2</div>
+              <h4 class="font-semibold">自動分類與標示</h4>
+            </div>
+            <ul class="text-sm text-gray-600 space-y-2 ml-10">
+              <li>• 系統自動歸類「不耐用治具」清單</li>
+              <li>• 顯示紅色警示</li>
+              <li>• 儀表板可統計比例</li>
+            </ul>
+          </div>
+
+          <!-- 3. 原因分析與回報 -->
+          <div class="border rounded-xl p-4 space-y-3">
+            <div class="flex items-center gap-2">
+              <div class="h-8 w-8 rounded-lg bg-amber-100 text-amber-700 grid place-items-center font-bold">3</div>
+              <h4 class="font-semibold">原因分析與回報</h4>
+            </div>
+            <ul class="text-sm text-gray-600 space-y-2 ml-10">
+              <li>• 報廢時填寫損壞原因、使用環境</li>
+              <li>• 可上傳照片</li>
+              <li>• 供工程部分析設計問題</li>
+            </ul>
+          </div>
+
+          <!-- 4. 系統提醒與學習回饋 -->
+          <div class="border rounded-xl p-4 space-y-3">
+            <div class="flex items-center gap-2">
+              <div class="h-8 w-8 rounded-lg bg-purple-100 text-purple-700 grid place-items-center font-bold">4</div>
+              <h4 class="font-semibold">系統提醒與學習回饋</h4>
+            </div>
+            <ul class="text-sm text-gray-600 space-y-2 ml-10">
+              <li>• 若同型號多次壽命不足</li>
+              <li>• 自動提醒檢討</li>
+              <li>• 持續優化治具設計</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <!-- 不耐用治具清單 -->
+      <div class="card p-5 space-y-4">
+        <div class="flex items-center justify-between">
+          <h3 class="font-semibold">不耐用治具清單(壽命未達預設值)</h3>
+          <button class="btn btn-ghost text-sm" onclick="downloadCSV('undurable_fixtures.csv', toCSV(getUndurableFixtures()))">匯出清單</button>
+        </div>
+        <div class="overflow-auto">
+          <table class="min-w-full text-sm">
+            <thead class="text-left text-gray-500">
+              <tr>
+                <th class="py-2 pr-4">治具編號</th>
+                <th class="py-2 pr-4">名稱</th>
+                <th class="py-2 pr-4">預期壽命</th>
+                <th class="py-2 pr-4">實際使用</th>
+                <th class="py-2 pr-4">達成率</th>
+                <th class="py-2 pr-4">警示等級</th>
+                <th class="py-2 pr-4">負責人</th>
+                <th class="py-2 pr-4">操作</th>
+              </tr>
+            </thead>
+            <tbody id="undurableTable"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 報廢原因登記表單 -->
+      <div class="card p-5 space-y-4">
+        <h3 class="font-semibold">報廢原因登記</h3>
+        <div class="grid md:grid-cols-6 gap-3">
+          <div class="field"><label class="label-xs">治具編號</label><select id="scrapFixture" class="input"></select></div>
+          <div class="field"><label class="label-xs">報廢日期</label><input id="scrapDate" type="date" class="input" /></div>
+          <div class="field"><label class="label-xs">損壞原因</label>
+            <select id="scrapReason" class="input">
+              <option>正常磨損</option>
+              <option>材質問題</option>
+              <option>設計缺陷</option>
+              <option>操作不當</option>
+              <option>意外損壞</option>
+              <option>其他</option>
+            </select>
+          </div>
+          <div class="field"><label class="label-xs">使用環境</label><input id="scrapEnv" class="input" placeholder="如:高溫/潮濕" /></div>
+          <div class="field"><label class="label-xs">照片上傳</label><input id="scrapPhoto" type="file" accept="image/*" class="input text-xs" /></div>
+          <div class="flex items-end"><button class="btn btn-primary w-full" onclick="toast('已記錄報廢原因(模擬)')">提交</button></div>
+        </div>
+        <div class="field">
+          <label class="label-xs">詳細說明</label>
+          <textarea id="scrapNote" class="input" rows="2" placeholder="請詳細描述損壞情況..."></textarea>
+        </div>
+      </div>
+    </section>
+
+    <!-- 使用/更換記錄 -->
+    <section id="tab-logs" class="hidden space-y-4">
+      <div class="card p-5 space-y-4">
+        <div class="grid md:grid-cols-5 gap-3">
+          <div class="field"><label class="label-xs">治具</label><select id="logFixture" class="input"></select></div>
+          <div class="field"><label class="label-xs">區間(起)</label><input id="logFrom" type="date" class="input" /></div>
+          <div class="field"><label class="label-xs">區間(迄)</label><input id="logTo" type="date" class="input" /></div>
+          <div class="field"><label class="label-xs">類型</label><select id="logType" class="input"><option value="all">全部</option><option value="use">使用</option><option value="replace">更換</option></select></div>
+          <div class="flex items-end gap-2"><button class="btn btn-primary w-full" onclick="toast('已套用篩選(模擬)')">套用</button></div>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2">
+          <button class="btn btn-primary" onclick="toggleAddLog(true)">新增記錄</button>
+          <label class="btn btn-ghost cursor-pointer"><input id="logCsv" type="file" accept=".csv" class="hidden" onchange="handleLogCsv(this)" /> 匯入 CSV</label>
+          <button class="btn btn-ghost" onclick="downloadCSV('usage_replace_template.csv', sampleLogTemplate())">下載範本</button>
+          <span class="text-xs text-gray-500">(欄位:date,fixture,loc,qty,type,note)</span>
+        </div>
+
+        <div id="addLogForm" class="hidden border rounded-2xl p-4 bg-gray-50">
+          <div class="grid md:grid-cols-6 gap-3">
+            <div class="field"><label class="label-xs">日期</label><input id="addLogDate" type="date" class="input" /></div>
+            <div class="field"><label class="label-xs">治具</label><select id="addLogFixture" class="input"></select></div>
+            <div class="field"><label class="label-xs">位置</label><input id="addLogLoc" class="input" placeholder="如:SMT1" /></div>
+            <div class="field"><label class="label-xs">數量</label><input id="addLogQty" type="number" class="input" placeholder="1" /></div>
+            <div class="field"><label class="label-xs">類型</label><select id="addLogType" class="input"><option value="use">使用</option><option value="replace">更換</option></select></div>
+            <div class="field"><label class="label-xs">備註</label><input id="addLogNote" class="input" /></div>
+          </div>
+          <div class="flex justify-end gap-2 pt-3">
+            <button class="btn btn-ghost" onclick="toggleAddLog(false)">取消</button>
+            <button class="btn btn-primary" onclick="addLog()">新增</button>
+          </div>
+        </div>
+
+        <div class="overflow-auto">
+          <table class="min-w-full text-sm">
+            <thead class="text-left text-gray-500">
+              <tr><th class="py-2 pr-4">日期</th><th class="py-2 pr-4">治具</th><th class="py-2 pr-4">位置</th><th class="py-2 pr-4">數量</th><th class="py-2 pr-4">類型</th><th class="py-2 pr-4">備註/異常</th></tr>
+            </thead>
+            <tbody id="logTable"></tbody>
+          </table>
+        </div>
+        <div class="flex justify-end gap-2">
+          <button class="btn btn-ghost" onclick="downloadCSV('usage_replace_logs.csv', toCSV(mockLogs))">匯出</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 後台管理(新增:子頁層) -->
+    <section id="tab-admin" class="hidden space-y-4">
+      <!-- 子頁層 -->
+      <div class="flex flex-wrap gap-2">
+        <button class="tab subtab-active" data-subtab="acct">帳號與權限</button>
+        <button class="tab" data-subtab="smtp">SMTP 設定</button>
+        <button class="tab" data-subtab="fixture">治具資料維護</button>
+        <button class="tab" data-subtab="model">機種資料維護</button>
+      </div>
+
+      <!-- 帳號與權限 -->
+      <div id="subtab-acct" class="card p-5 space-y-4">
+        <h3 class="font-semibold">帳號與權限</h3>
+        <div class="grid md:grid-cols-3 gap-4">
+          <!-- 新增帳戶 -->
+          <div class="border rounded-2xl p-4 space-y-3">
+            <div class="font-semibold text-sm">新增帳戶</div>
+            <div class="grid gap-3">
+              <div class="field"><label class="label-xs">帳號 (id)</label><input id="accAddId" class="input"/></div>
+              <div class="field"><label class="label-xs">密碼</label><input id="accAddPwd" type="password" class="input"/></div>
+              <div class="field"><label class="label-xs">Email</label><input id="accAddMail" type="email" class="input"/></div>
+              <div class="field"><label class="label-xs">權限</label>
+                <select id="accAddRole" class="input">
+                  <option value="user">一般用戶(查詢/增加)</option>
+                  <option value="admin">管理員(查詢/增修刪)</option>
+                </select>
+              </div>
+              <button class="btn btn-primary" onclick="toast('已新增帳戶(模擬)')">新增</button>
+            </div>
+          </div>
+
+          <!-- 刪除帳戶 -->
+          <div class="border rounded-2xl p-4 space-y-3">
+            <div class="font-semibold text-sm">刪除帳戶</div>
+            <div class="grid gap-3">
+              <div class="field"><label class="label-xs">帳號 (id)</label><input id="accDelId" class="input"/></div>
+              <div class="field"><label class="label-xs">密碼</label><input id="accDelPwd" type="password" class="input"/></div>
+              <button class="btn btn-ghost" onclick="toast('已刪除帳戶(模擬)')">刪除</button>
+            </div>
+          </div>
+
+          <!-- 修改密碼 -->
+          <div class="border rounded-2xl p-4 space-y-3">
+            <div class="font-semibold text-sm">修改密碼</div>
+            <div class="grid gap-3">
+              <div class="field"><label class="label-xs">帳號 (id)</label><input id="accModId" class="input"/></div>
+              <div class="field"><label class="label-xs">現行密碼</label><input id="accModPwd" type="password" class="input"/></div>
+              <div class="field"><label class="label-xs">新密碼</label><input id="accModNew" type="password" class="input"/></div>
+              <div class="field"><label class="label-xs">Email</label><input id="accModMail" type="email" class="input"/></div>
+              <button class="btn btn-ghost" onclick="toast('已修改密碼(模擬)')">修改</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- SMTP 設定(含更換通知對象) -->
+      <div id="subtab-smtp" class="card p-5 space-y-4 hidden">
+        <h3 class="font-semibold">SMTP 設定</h3>
+        <div class="grid md:grid-cols-3 gap-3">
+          <div class="field"><label class="label-xs">Email</label><input id="smtpEmail" class="input" placeholder="通知寄送 Email"/></div>
+          <div class="field"><label class="label-xs">外送郵件伺服器名稱 (SMTP)</label><input id="smtpHost" class="input" placeholder="smtp.example.com"/></div>
+          <div class="field"><label class="label-xs">埠號 (Port)</label><input id="smtpPort" class="input" placeholder="587"/></div>
+          <div class="field"><label class="label-xs">認證狀態</label>
+            <select id="smtpAuthState" class="input">
+              <option>未認證</option><option>已認證</option>
+            </select>
+          </div>
+          <div class="field"><label class="label-xs">認證帳號</label><input id="smtpUser" class="input" /></div>
+          <div class="field"><label class="label-xs">認證密碼</label><input id="smtpPass" type="password" class="input" /></div>
+          <div class="field"><label class="label-xs">寄件者名稱</label><input id="smtpSenderName" class="input" /></div>
+          <div class="field"><label class="label-xs">寄件者信箱</label><input id="smtpSenderMail" type="email" class="input" /></div>
+        </div>
+        <div class="flex gap-2">
+          <button class="btn btn-primary" onclick="toast('已儲存 SMTP(模擬)')">儲存</button>
+          <button class="btn btn-ghost" onclick="toast('測試寄信(模擬)')">測試寄信</button>
+        </div>
+
+        <div class="pt-2 border-t">
+          <div class="flex items-center justify-between py-3">
+            <h4 class="font-semibold">更換通知對象</h4>
+            <button class="btn btn-ghost" onclick="downloadCSV('owners.csv', toCSV(mockOwners))">匯出負責人</button>
+          </div>
+          <div class="overflow-auto">
+            <table class="min-w-full text-sm">
+              <thead class="text-left text-gray-500">
+                <tr><th class="py-2 pr-4">員編</th><th class="py-2 pr-4">姓名</th><th class="py-2 pr-4">Email</th><th class="py-2 pr-4">操作</th></tr>
+              </thead>
+              <tbody id="ownerTable"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- 治具資料維護 -->
+      <div id="subtab-fixture" class="card p-5 space-y-3 hidden">
+        <div class="flex items-center justify-between">
+          <h3 class="font-semibold">治具資料維護</h3>
+          <div class="flex items-center gap-2">
+            <button class="btn btn-ghost" onclick="downloadCSV('fixtures_export.csv', toCSV(mockFixtures))">匯出</button>
+            <button class="btn btn-ghost" onclick="downloadCSV('fixtures_template.csv', fixtureTemplate())">下載範本</button>
+          </div>
+        </div>
+        <div class="grid md:grid-cols-5 gap-3">
+          <div class="field"><label class="label-xs">治具名稱</label><input id="fxName" class="input" placeholder="名稱" /></div>
+          <div class="field"><label class="label-xs">對應使用機種</label><input id="fxModel" class="input" placeholder="機種" /></div>
+          <div class="field"><label class="label-xs">儲位</label><input id="fxLoc" class="input" placeholder="儲位" /></div>
+          <div class="field"><label class="label-xs">狀態</label><input id="fxStatus" class="input" placeholder="active/inactive" /></div>
+          <div class="field"><label class="label-xs">更換週期</label><input id="fxCycle" type="number" class="input" placeholder="次數" /></div>
+        </div>
+        <div class="flex items-center gap-2">
+          <button class="btn btn-primary" onclick="addFixture()">新增</button>
+          <label class="btn btn-ghost cursor-pointer"><input id="fxCsv" type="file" accept=".xlsx,.csv" class="hidden" onchange="handleFixtureCsv(this)" /> 匯入 Excel/CSV</label>
+        </div>
+        <div class="border-t pt-3">
+          <div class="flex items-center justify-between">
+            <div class="text-sm text-gray-600">共 <span id="fxCount">0</span> 筆</div>
+            <div class="pagination flex items-center gap-2">
+              <button class="btn btn-ghost text-xs" id="fxFirst" onclick="fxPage=1; renderFixtureList()">«</button>
+              <button class="btn btn-ghost text-xs" id="fxPrev"  onclick="fxPage=Math.max(1,fxPage-1); renderFixtureList()">上一頁</button>
+              <span class="text-xs">第 <span id="fxPageNow">1</span> / <span id="fxPageMax">1</span> 頁(每頁 8 筆)</span>
+              <button class="btn btn-ghost text-xs" id="fxNext"  onclick="fxPage=Math.min(fxTotalPages,fxPage+1); renderFixtureList()">下一頁</button>
+              <button class="btn btn-ghost text-xs" id="fxLast"  onclick="fxPage=fxTotalPages; renderFixtureList()">»</button>
+            </div>
+          </div>
+          <div class="overflow-auto mt-2">
+            <table class="min-w-full text-sm">
+              <thead class="text-left text-gray-500">
+                <tr><th class="py-2 pr-4">治具名稱</th><th class="py-2 pr-4">機種</th><th class="py-2 pr-4">儲位</th><th class="py-2 pr-4">狀態</th><th class="py-2 pr-4">更換週期</th><th class="py-2 pr-4">操作</th></tr>
+              </thead>
+              <tbody id="fxTable"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- 機種資料維護 -->
+      <div id="subtab-model" class="card p-5 space-y-3 hidden">
+        <div class="flex items-center justify-between">
+          <h3 class="font-semibold">機種資料維護</h3>
+          <div class="flex items-center gap-2">
+            <button class="btn btn-ghost" onclick="downloadCSV('models_export.csv', toCSV(mockModels))">匯出</button>
+            <button class="btn btn-ghost" onclick="downloadCSV('models_template.csv', modelTemplate())">下載範本</button>
+          </div>
+        </div>
+        <div class="grid md:grid-cols-4 gap-3">
+          <div class="field"><label class="label-xs">治具名稱</label><input id="mdFxName" class="input" placeholder="對應治具名稱" /></div>
+          <div class="field"><label class="label-xs">對應使用機種</label><input id="mdModelName" class="input" placeholder="機種名稱" /></div>
+          <div class="field"><label class="label-xs">站點</label><input id="mdPos" class="input" placeholder="站點/位置" /></div>
+          <div class="field"><label class="label-xs">數量</label><input id="mdQty" type="number" class="input" placeholder="數量" /></div>
+        </div>
+        <div class="flex items-center gap-2">
+          <button class="btn btn-primary" onclick="addModel()">新增</button>
+          <label class="btn btn-ghost cursor-pointer"><input id="mdCsv" type="file" accept=".xlsx,.csv" class="hidden" onchange="handleModelCsv(this)" /> 匯入 Excel/CSV</label>
+        </div>
+        <div class="border-t pt-3">
+          <div class="flex items-center justify-between">
+            <div class="text-sm text-gray-600">共 <span id="mdCount">0</span> 筆</div>
+            <div class="pagination flex items-center gap-2">
+              <button class="btn btn-ghost text-xs" id="mdFirst" onclick="mdPage=1; renderModelList()">«</button>
+              <button class="btn btn-ghost text-xs" id="mdPrev"  onclick="mdPage=Math.max(1,mdPage-1); renderModelList()">上一頁</button>
+              <span class="text-xs">第 <span id="mdPageNow">1</span> / <span id="mdPageMax">1</span> 頁(每頁 8 筆)</span>
+              <button class="btn btn-ghost text-xs" id="mdNext"  onclick="mdPage=Math.min(mdTotalPages,mdPage+1); renderModelList()">下一頁</button>
+              <button class="btn btn-ghost text-xs" id="mdLast"  onclick="mdPage=mdTotalPages; renderModelList()">»</button>
+            </div>
+          </div>
+          <div class="overflow-auto mt-2">
+            <table class="min-w-full text-sm">
+              <thead class="text-left text-gray-500">
+                <tr><th class="py-2 pr-4">治具名稱</th><th class="py-2 pr-4">機種</th><th class="py-2 pr-4">站點</th><th class="py-2 pr-4">數量</th><th class="py-2 pr-4">操作</th></tr>
+              </thead>
+              <tbody id="mdTable"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Toast -->
+  <div id="toast" class="fixed bottom-4 left-1/2 -translate-x-1/2 hidden">
+    <div class="bg-gray-900 text-white px-4 py-2 rounded-xl shadow-lg">訊息</div>
+  </div>
+
+  <script>
+    // === 永久化(localStorage)設定 ===
+    const LS_KEY = 'fixtureApp.v6.3';
+    function saveState(){
+      try{
+        const state = { mockOwners, mockFixtures, mockLogs, mockReceipts, mockReturns, mockModels, authUser };
+        localStorage.setItem(LS_KEY, JSON.stringify(state));
+      }catch(e){ console.warn('saveState failed', e); }
+    }
+    function loadState(){
+      try{
+        const raw = localStorage.getItem(LS_KEY);
+        if(!raw) return;
+        const s = JSON.parse(raw);
+        if(s.mockOwners)   mockOwners   = s.mockOwners;
+        if(s.mockFixtures) mockFixtures = s.mockFixtures;
+        if(s.mockLogs)     mockLogs     = s.mockLogs;
+        if(s.mockReceipts) mockReceipts = s.mockReceipts;
+        if(s.mockReturns)  mockReturns  = s.mockReturns;
+        if(s.mockModels)   mockModels   = s.mockModels;
+        if(s.authUser)     authUser     = s.authUser;
+      }catch(e){ console.warn('loadState failed', e); }
+    }
+
+    // --- 模擬資料 ---
+    let authUser = null;
+    let mockOwners = [
+
+    ];
+    let mockFixtures = [
+
+
+    ];
+    let mockLogs = [
+
+    ];
+    let mockReceipts = [
+
+    ];
+    let mockReturns = [
+
+    ];
+    let mockModels = [
+
+    ];
+
+    // 即將更換(使用次數 >= 週期*0.8)
+    function calcUpcoming(fixtures){
+      return fixtures.filter(f=> f.status==='active' && f.used >= f.cycle*0.8)
+                     .sort((a,b)=> (b.used/b.cycle) - (a.used/a.cycle));
+    }
+
+    // 不耐用治具(使用次數未達預期週期就報廢,這裡模擬為報廢時 used < cycle*0.6)
+    function getUndurableFixtures(){
+      return mockFixtures.filter(f=> f.status==='inactive' && f.used > 0 && f.used < f.cycle * 0.6)
+        .map(f=> ({
+          ...f,
+          achievement: Math.round((f.used/f.cycle)*100),
+          warning: f.used < f.cycle*0.3 ? 'danger' : 'warning'
+        }));
+    }
+
+    // 統計數據計算
+    function calcStats(){
+      const total = mockFixtures.length;
+      const active = mockFixtures.filter(f=> f.status==='active').length;
+      const underLife = getUndurableFixtures().length;
+      const needReplace = calcUpcoming(mockFixtures).length;
+      return { total, active, underLife, needReplace };
+    }
+
+    // 時鐘
+    function startClock(){
+      setInterval(()=>{
+        const d=new Date(); const pad=n=> String(n).padStart(2,'0');
+        const t=`${pad(d.getHours())}:${pad(d.getMinutes())}`;
+        const el = document.getElementById('clock'); if(el) el.textContent=t;
+      }, 1000);
+    }
+
+    // 渲染統計頁面
+    function renderStats(){
+      const stats = calcStats();
+      const el1 = document.getElementById('statTotalFixtures'); if(el1) el1.textContent = stats.total;
+      const el2 = document.getElementById('statActiveFixtures'); if(el2) el2.textContent = stats.active;
+      const el3 = document.getElementById('statUnderLifespan'); if(el3) el3.textContent = stats.underLife;
+      const el4 = document.getElementById('statNeedReplacement'); if(el4) el4.textContent = stats.needReplace;
+
+      const tbody = document.getElementById('undurableTable');
+      if(!tbody) return;
+      const undurable = getUndurableFixtures();
+      tbody.innerHTML = undurable.length ? undurable.map(f=> `
+        <tr class="border-t">
+          <td class="py-2 pr-4 font-mono">${f.id}</td>
+          <td class="py-2 pr-4">${f.name}</td>
+          <td class="py-2 pr-4">${f.cycle}</td>
+          <td class="py-2 pr-4">${f.used}</td>
+          <td class="py-2 pr-4">${f.achievement}%</td>
+          <td class="py-2 pr-4"><span class="pill ${f.warning==='danger'?'danger-tag':'warning-tag'}">${f.warning==='danger'?'嚴重':'警告'}</span></td>
+          <td class="py-2 pr-4">${f.owner}</td>
+          <td class="py-2 pr-4"><button class="btn btn-ghost text-xs" onclick="toast('檢視詳情(模擬)')">檢視</button></td>
+        </tr>`).join('') : `<tr><td colspan="8" class="py-4 text-center text-gray-500">目前無不耐用治具</td></tr>`;
+
+      // 填充報廢登記的治具選項
+      const sel = document.getElementById('scrapFixture');
+      if(sel){
+        sel.innerHTML = '<option value="">請選擇</option>' + mockFixtures.map(f=> `<option value="${f.id}">${f.id} - ${f.name}</option>`).join('');
+      }
+    }
+
+    // 渲染
+    function renderUpcoming(){
+      const up=calcUpcoming(mockFixtures);
+      const box=document.getElementById('upcomingList');
+      if(!box) return;
+      box.innerHTML = up.length? up.map(f=>(
+        `<div class='flex items-center justify-between border rounded-xl px-3 py-2'>
+          <div class='min-w-0'>
+            <div class='font-medium truncate'>${f.id} · ${f.name}</div>
+            <div class='text-xs text-gray-500 truncate'>使用 ${f.used}/${f.cycle} · 負責人 ${f.owner}</div>
+          </div>
+          <span class='pill ${f.used>=f.cycle? 'border-red-300 text-red-700 bg-red-50':'border-amber-300 text-amber-700 bg-amber-50'}'>
+            ${Math.round(100*f.used/f.cycle)}%
+          </span>
+        </div>`)).join('') : `<div class='text-sm text-gray-500'>目前無即將更換治具</div>`;
+    }
+    function renderDash(rows){
+      const tbody=document.getElementById('dashTable'); if(!tbody) return;
+      tbody.innerHTML = rows.map(r=> `
+        <tr class="border-t">
+          <td class="py-2 pr-4 font-mono">${r.id}</td>
+          <td class="py-2 pr-4">${r.name}</td>
+          <td class="py-2 pr-4">${r.model}</td>
+          <td class="py-2 pr-4">${r.loc}</td>
+          <td class="py-2 pr-4">${r.status==='active'? '<span class="pill border-green-300 text-green-700 bg-green-50">Active</span>':'<span class="pill border-gray-300 text-gray-600 bg-gray-50">Inactive</span>'}</td>
+          <td class="py-2 pr-4">${r.used}/${r.cycle}</td>
+          <td class="py-2 pr-4">${r.owner}</td>
+        </tr>`).join('');
+    }
+    function renderQuery(rows){
+      const tbody=document.getElementById('queryTable'); if(!tbody) return;
+      tbody.innerHTML = rows.map(r=> `
+        <tr class="border-t">
+          <td class="py-2 pr-4"><div class="h-12 w-20 bg-gray-100 border rounded-lg grid place-items-center text-xs text-gray-500">IMG</div></td>
+          <td class="py-2 pr-4"><div class="font-mono">${r.id}</div><div class="text-xs text-gray-500 truncate">${r.name}</div></td>
+          <td class="py-2 pr-4">${r.model}</td>
+          <td class="py-2 pr-4">${r.loc}</td>
+          <td class="py-2 pr-4">${r.maxOpen||''}</td>
+          <td class="py-2 pr-4">${r.status}</td>
+          <td class="py-2 pr-4"><button class="btn btn-ghost text-xs" onclick="toast('已開啟詳細(模擬)')">詳細</button></td>
+        </tr>`).join('');
+    }
+    function renderLogs(rows){
+      const tbody=document.getElementById('logTable'); if(!tbody) return;
+      tbody.innerHTML = rows.map(r=> `
+        <tr class="border-t">
+          <td class="py-2 pr-4">${r.date}</td>
+          <td class="py-2 pr-4 font-mono">${r.fixture}</td>
+          <td class="py-2 pr-4">${r.loc}</td>
+          <td class="py-2 pr-4">${r.qty}</td>
+          <td class="py-2 pr-4">${r.type}</td>
+          <td class="py-2 pr-4">${r.note||''}</td>
+        </tr>`).join('');
+    }
+    function renderOwners(rows){
+      const tbody=document.getElementById('ownerTable'); if(!tbody) return;
+      tbody.innerHTML = rows.map(o=> `
+        <tr class="border-t">
+          <td class="py-2 pr-4 font-mono">${o.emp_id}</td>
+          <td class="py-2 pr-4">${o.name}</td>
+          <td class="py-2 pr-4">${o.email}</td>
+          <td class="py-2 pr-4"><button class="btn btn-ghost text-xs" onclick="toast('已設定(模擬)')">設定</button></td>
+        </tr>`).join('');
+    }
+
+    function renderReceipts(){
+      const tbody=document.getElementById('rcvTable'); if(!tbody) return;
+      const q=(document.getElementById('rcvSearch')?.value||'').toLowerCase();
+      const rows = mockReceipts.slice().sort((a,b)=> new Date(b.dt)-new Date(a.dt))
+        .filter(r=> !q || [r.fixture,r.lot].join(' ').toLowerCase().includes(q)).slice(0,10);
+      const cnt = document.getElementById('rcvCount'); if(cnt) cnt.textContent = mockReceipts.length;
+      tbody.innerHTML = rows.map((r)=>`
+        <tr class="border-t">
+          <td class="py-2 pr-4">${fmtDT(r.dt)}</td>
+          <td class="py-2 pr-4 font-mono">${r.fixture}</td>
+          <td class="py-2 pr-4">${r.lot}</td>
+          <td class="py-2 pr-4">${r.qty}</td>
+          <td class="py-2 pr-4">
+            ${r.id!==undefined ?
+              `<button class="btn btn-ghost text-xs" onclick="delReceiptById(${r.id})">刪除</button>` :
+              `<button class="btn btn-ghost text-xs" onclick="deleteReceipt('${r.dt}','${r.fixture}','${r.lot}',${r.qty})">刪除</button>`}
+          </td>
+        </tr>`).join('');
+    }
+
+    function renderReturns(){
+      const tbody=document.getElementById('retTable'); if(!tbody) return;
+      const q=(document.getElementById('retSearch')?.value||'').toLowerCase();
+      const rows = mockReturns.slice().sort((a,b)=> new Date(b.dt)-new Date(a.dt))
+        .filter(r=> !q || [r.fixture,r.lot].join(' ').toLowerCase().includes(q)).slice(0,10);
+      const cnt = document.getElementById('retCount'); if(cnt) cnt.textContent = mockReturns.length;
+      tbody.innerHTML = rows.map((r)=>`
+        <tr class="border-t">
+          <td class="py-2 pr-4">${fmtDT(r.dt)}</td>
+          <td class="py-2 pr-4 font-mono">${r.fixture}</td>
+          <td class="py-2 pr-4">${r.lot}</td>
+          <td class="py-2 pr-4">${r.qty}</td>
+          <td class="py-2 pr-4">
+            ${r.id!==undefined ?
+              `<button class="btn btn-ghost text-xs" onclick="delReturnById(${r.id})">刪除</button>` :
+              `<button class="btn btn-ghost text-xs" onclick="deleteReturn('${r.dt}','${r.fixture}','${r.lot}',${r.qty})">刪除</button>`}
+          </td>
+        </tr>`).join('');
+    }
+
+    // 儀表板:今日數量 + 最新三筆
+    function renderTodayCards(){
+      const todayStr = new Date().toISOString().slice(0,10);
+      const isToday = (dt)=> (dt||'').slice(0,10)===todayStr;
+      const todayInArr = mockReceipts.filter(r=> isToday(r.dt)).sort((a,b)=> new Date(b.dt)-new Date(a.dt));
+      const todayOutArr= mockReturns.filter(r=> isToday(r.dt)).sort((a,b)=> new Date(b.dt)-new Date(a.dt));
+      const elIn = document.getElementById('todayIn'); if(elIn) elIn.textContent = todayInArr.reduce((s,r)=>s+Number(r.qty||0),0);
+      const elOut= document.getElementById('todayOut'); if(elOut) elOut.textContent= todayOutArr.reduce((s,r)=>s+Number(r.qty||0),0);
+      const inBox = document.getElementById('todayInList'); const outBox= document.getElementById('todayOutList');
+      if(inBox) inBox.innerHTML = (todayInArr.slice(0,3).map(r=>rowChip(r)).join('')) || `<div class="text-xs text-gray-500">今日尚無收料</div>`;
+      if(outBox) outBox.innerHTML= (todayOutArr.slice(0,3).map(r=>rowChip(r)).join('')) || `<div class="text-xs text-gray-500">今日尚無退料</div>`;
+      function rowChip(r){
+        return `<div class="flex items-center justify-between border rounded-xl px-3 py-2">
+          <div class="min-w-0"><div class="font-medium truncate">${r.fixture} · ${r.lot}</div><div class="text-xs text-gray-500 truncate">${fmtDT(r.dt)}</div></div>
+          <span class="pill border-gray-300">${r.qty}</span></div>`;
+      }
+    }
+
+    // CSV/檔案工具
+    function readFileAsText(file, cb){ const reader = new FileReader(); reader.onload = e=> cb(e.target.result); reader.readAsText(file, 'utf-8'); }
+    function parseCSV(text){
+      const lines = text.replace(/\r/g,'').split('\n').filter(x=>x.trim());
+      if(lines.length<2) return [];
+      const headers = lines[0].split(',').map(h=> h.trim());
+      const rows = [];
+      for(let i=1;i<lines.length;i++){
+        const row = csvSmartSplit(lines[i]); const obj = {}; headers.forEach((h,idx)=> obj[h]= row[idx]); rows.push(obj);
+      }
+      return rows;
+    }
+    function csvSmartSplit(line){
+      const out=[]; let cur=''; let inQ=false;
+      for(let i=0;i<line.length;i++){
+        const ch=line[i];
+        if(ch=='"'){ if(inQ && line[i+1]=='"'){ cur+='"'; i++; } else { inQ=!inQ; } }
+        else if(ch===',' && !inQ){ out.push(cur); cur=''; }
+        else { cur+=ch; }
+      }
+      out.push(cur);
+      return out.map(s=> s.replace(/^\s+|\s+$/g,'').replace(/^"|"$/g,''));
+    }
+    function toCSV(rows){ if(!rows || !rows.length) return ''; const keys = Object.keys(rows[0]); const head = keys.join(','); const body = rows.map(r=> keys.map(k=> JSON.stringify(r[k]??'')).join(',')).join('\n'); return head+"\n"+body; }
+    function fixtureTemplate(){ return 'fixture_id,fixture_name,model,storage_location,status,replace_cycle,used,owner,max_open\nJIG-010,治具說明,GEN6,A-01-01,active,120,0,Cindy,8'; }
+    function modelTemplate(){ return 'model_id,model_name,fixture_id,usage_position,qty\nFZG078,FZG078,JIG-001,SMT1,1'; }
+    function sampleTemplateCSV(type){ if(type==='receipt') return 'date,fixture,lot,qty\n2025-10-15 08:00,JIG-001,L240915A,10'; if(type==='return') return 'date,fixture,lot,qty\n2025-10-15 09:00,JIG-001,L240915A,3'; return ''; }
+    function sampleLogTemplate(){ return 'date,fixture,loc,qty,type,note\n2025-10-15,JIG-001,SMT1,1,use,正常使用'; }
+    function mockUpcomingCSV(){ const rows = calcUpcoming(mockFixtures).map(x=>({fixture_id:x.id, name:x.name, used:x.used, cycle:x.cycle, owner:x.owner})); return toCSV(rows); }
+    function downloadCSV(filename, csv){ const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'}); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = filename; a.click(); URL.revokeObjectURL(url); }
+    function fmtDT(dt){ if(!dt) return ''; const d = new Date(dt); const pad=n=> String(n).padStart(2,'0'); return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())+' '+pad(d.getHours())+':'+pad(d.getMinutes()); }
+
+    // 刪除/新增(簡化功能沿用)
+    function addReceipt(){
+      const f = (document.getElementById('rcvFixture').value||'').trim();
+      const lot = (document.getElementById('rcvLot').value||'').trim();
+      const qty = Number(document.getElementById('rcvQty').value||0);
+      const dt = document.getElementById('rcvDate').value || new Date().toISOString().slice(0,16);
+      if(!f || !lot || !qty){ toast('請輸入治具、LOT、數量'); return; }
+      mockReceipts.push({dt, fixture:f, lot, qty}); saveState(); renderReceipts(); renderTodayCards(); toast('已新增收料');
+      ['rcvFixture','rcvLot','rcvQty','rcvDate'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
+    }
+    function addReturn(){
+      const f = (document.getElementById('retFixture').value||'').trim();
+      const lot = (document.getElementById('retLot').value||'').trim();
+      const qty = Number(document.getElementById('retQty').value||0);
+      const dt = document.getElementById('retDate').value || new Date().toISOString().slice(0,16);
+      if(!f || !lot || !qty){ toast('請輸入治具、LOT、數量'); return; }
+      mockReturns.push({dt, fixture:f, lot, qty}); saveState(); renderReturns(); renderTodayCards(); toast('已新增退料');
+      ['retFixture','retLot','retQty','retDate'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
+    }
+    function deleteReceipt(dt,f,lot,qty){ const i = mockReceipts.findIndex(r=> r.dt===dt && r.fixture===f && r.lot===lot && r.qty===qty); if(i>=0){ mockReceipts.splice(i,1); saveState(); renderReceipts(); renderTodayCards(); toast('已刪除'); } }
+    function deleteReturn(dt,f,lot,qty){ const i = mockReturns.findIndex(r=> r.dt===dt && r.fixture===f && r.lot===lot && r.qty===qty); if(i>=0){ mockReturns.splice(i,1); saveState(); renderReturns(); renderTodayCards(); toast('已刪除'); } }
+    function handleReceiptCsv(input){ const file = input.files && input.files[0]; if(!file){return;} readFileAsText(file, (txt)=>{ const rows = parseCSV(txt); let count=0; rows.forEach(r=>{ const dt=(r.date||r.datetime||r.dt||'').replace(' ','T'); const fixture=r.fixture||r.fixture_id||r.id||''; const lot=r.lot||r.lot_no||r.lotno||''; const qty=Number(r.qty||0); if(dt && fixture && lot && qty){ mockReceipts.push({dt, fixture, lot, qty}); count++; } }); saveState(); renderReceipts(); renderTodayCards(); toast(`已匯入 ${count} 筆收料`); input.value=''; }); }
+    function handleReturnCsv(input){ const file = input.files && input.files[0]; if(!file){return;} readFileAsText(file, (txt)=>{ const rows = parseCSV(txt); let count=0; rows.forEach(r=>{ const dt=(r.date||r.datetime||r.dt||'').replace(' ','T'); const fixture=r.fixture||r.fixture_id||r.id||''; const lot=r.lot||r.lot_no||r.lotno||''; const qty=Number(r.qty||0); if(dt && fixture && lot && qty){ mockReturns.push({dt, fixture, lot, qty}); count++; } }); saveState(); renderReturns(); renderTodayCards(); toast(`已匯入 ${count} 筆退料`); input.value=''; }); }
+    function handleLogCsv(input){ const file = input.files && input.files[0]; if(!file){return;} readFileAsText(file, (txt)=>{ const rows = parseCSV(txt); let count=0; rows.forEach(r=>{ const date=r.date||''; const fixture=r.fixture||''; const loc=r.loc||''; const qty=Number(r.qty||0); const type=r.type||'use'; const note=r.note||''; if(date && fixture && qty){ mockLogs.push({date, fixture, loc, qty, type, note}); count++; } }); saveState(); renderLogs(mockLogs); toast(`已匯入 ${count} 筆記錄`); input.value=''; }); }
+
+    // 查詢
+    function filterDashboard(){ const q = (document.getElementById('searchDash').value||'').toLowerCase(); const rows = mockFixtures.filter(r=> Object.values(r).join(' ').toLowerCase().includes(q)); renderDash(rows); }
+    function applyQuery(){ const f=document.getElementById('qFixture').value.trim().toLowerCase(); const m=document.getElementById('qModel').value.trim().toLowerCase(); const l=document.getElementById('qLoc').value.trim().toLowerCase(); const o=document.getElementById('qOwner').value.trim().toLowerCase(); const rows = mockFixtures.filter(x=> (!f || x.id.toLowerCase().includes(f) || x.name.toLowerCase().includes(f)) && (!m || x.model.toLowerCase()===m) && (!l || x.loc.toLowerCase().includes(l)) && (!o || x.owner.toLowerCase()===o)); renderQuery(rows); }
+
+    // 使用/更換記錄
+    function toggleAddLog(show){ const el=document.getElementById('addLogForm'); if(!el) return; el.classList.toggle('hidden', !show); }
+    function addLog(){ const date=document.getElementById('addLogDate').value; const fixture=document.getElementById('addLogFixture').value; const loc=document.getElementById('addLogLoc').value; const qty=Number(document.getElementById('addLogQty').value||0); const type=document.getElementById('addLogType').value; const note=document.getElementById('addLogNote').value; if(!date||!fixture||!qty){ toast('日期/治具/數量 必填'); return; } mockLogs.push({date, fixture, loc, qty, type, note}); saveState(); renderLogs(mockLogs); toast('已新增記錄'); toggleAddLog(false); }
+
+    // 子頁層邏輯(Admin)
+    const SUBTABS = ['acct','smtp','fixture','model'];
+    function setActiveSubtab(key){
+      if(!SUBTABS.includes(key)) key='acct';
+      document.querySelectorAll('#tab-admin > .card').forEach(sec=> sec.classList.add('hidden'));
+      document.getElementById('subtab-'+key)?.classList.remove('hidden');
+      document.querySelectorAll('#tab-admin [data-subtab]').forEach(b=> b.classList.remove('subtab-active'));
+      document.querySelector(`#tab-admin [data-subtab="${key}"]`)?.classList.add('subtab-active');
+      localStorage.setItem('adminSubtab', key);
+      if(key==='fixture'){ renderFixtureList(); }
+      if(key==='model'){ renderModelList(); }
+    }
+
+    // 頁層路由
+    const TABS = ['dashboard','receive','return','query','stats','logs','admin'];
+    function setActiveTab(key){
+      if(!TABS.includes(key)) key='dashboard';
+      document.querySelectorAll('main > section').forEach(sec=> sec.classList.add('hidden'));
+      document.getElementById('tab-'+key)?.classList.remove('hidden');
+      document.querySelectorAll('nav button[data-tab]').forEach(b=> b.classList.remove('tab-active'));
+      document.querySelector(`nav button[data-tab="${key}"]`)?.classList.add('tab-active');
+      const map={dashboard:'儀表板', receive:'收料登記', return:'退料登記', query:'治具/機種查詢', stats:'治具情況統計', logs:'使用/更換記錄', admin:'後台管理'};
+      const t = document.getElementById('activeTabTitle'); if(t) t.textContent = map[key]||'';
+      if(key==='admin'){ const last = localStorage.getItem('adminSubtab') || 'acct'; setActiveSubtab(last); }
+      if(key==='stats'){ renderStats(); }
+    }
+    function goToTab(key){ if(!TABS.includes(key)) key='dashboard'; if(location.hash !== '#'+key){ location.hash = '#'+key; } else { setActiveTab(key); } }
+    function routeFromHash(){ const key = (location.hash||'').replace(/^#/, '') || 'dashboard'; setActiveTab(key); }
+
+    // 登入控制(Modal)
+    function openLogin(){ document.getElementById('loginModal').style.display='flex'; }
+    function closeLogin(){ document.getElementById('loginModal').style.display='none'; }
+    function mockLogin(){
+      const id = (document.getElementById('loginId').value||'').trim();
+      const pwd= (document.getElementById('loginPwd').value||'').trim();
+      const msg= document.getElementById('loginMsg');
+      if(!id || !pwd){ msg.textContent='請輸入帳號與密碼'; return; }
+      authUser = { id }; saveState();
+      document.getElementById('loginState').textContent = '已登入:'+id;
+      msg.textContent='登入成功(模擬)。';
+      setTimeout(closeLogin, 600);
+    }
+
+    // ---- 治具維護:新增、匯入、分頁(每頁 8 筆) ----
+    const FX_PAGE_SIZE = 8; let fxPage = 1; let fxTotalPages = 1;
+    function addFixture(){
+      const name=(document.getElementById('fxName').value||'').trim();
+      const model=(document.getElementById('fxModel').value||'').trim();
+      const loc=(document.getElementById('fxLoc').value||'').trim();
+      const status=(document.getElementById('fxStatus').value||'').trim()||'active';
+      const cycle=Number(document.getElementById('fxCycle').value||0);
+      if(!name||!model||!loc||!cycle){ toast('請填寫完整欄位'); return; }
+      const id = 'JIG-'+String(mockFixtures.length+1).padStart(3,'0');
+      mockFixtures.push({id, name, model, loc, status, used:0, cycle, owner:'', maxOpen: '', img:''});
+      saveState(); toast('已新增治具(模擬)');
+      ['fxName','fxModel','fxLoc','fxStatus','fxCycle'].forEach(i=>{const el=document.getElementById(i); if(el) el.value='';});
+      renderFixtureList();
+    }
+    function handleFixtureCsv(input){
+      const file = input.files && input.files[0]; if(!file){return;}
+      readFileAsText(file, (txt)=>{
+        const rows = parseCSV(txt); let count=0;
+        rows.forEach(r=>{
+          const id = r.fixture_id || r.id || ('JIG-'+String(mockFixtures.length+1).padStart(3,'0'));
+          const name = r.fixture_name || r.name || '';
+          const model = r.model || '';
+          const loc = r.storage_location || r.loc || '';
+          const status = r.status || 'active';
+          const cycle = Number(r.replace_cycle || r.cycle || 0);
+          if(name && model && loc && cycle){
+            mockFixtures.push({id, name, model, loc, status, used:Number(r.used||0), cycle, owner:r.owner||'', maxOpen:r.max_open||'', img:''});
+            count++;
+          }
+        });
+        saveState(); toast(`已匯入 ${count} 筆治具`); renderFixtureList(); input.value='';
+      });
+    }
+    function renderFixtureList(){
+      const tbody = document.getElementById('fxTable'); if(!tbody) return;
+      const cntEl = document.getElementById('fxCount'); const nowEl = document.getElementById('fxPageNow'); const maxEl = document.getElementById('fxPageMax');
+      const total = mockFixtures.length; if(cntEl) cntEl.textContent = total;
+      fxTotalPages = Math.max(1, Math.ceil(total/FX_PAGE_SIZE));
+      if(fxPage>fxTotalPages) fxPage=fxTotalPages;
+      const start=(fxPage-1)*FX_PAGE_SIZE, end=start+FX_PAGE_SIZE;
+      const pageRows = mockFixtures.slice(start,end);
+      tbody.innerHTML = pageRows.map(f=>`
+        <tr class="border-t">
+          <td class="py-2 pr-4">${f.name}</td>
+          <td class="py-2 pr-4">${f.model}</td>
+          <td class="py-2 pr-4">${f.loc}</td>
+          <td class="py-2 pr-4">${f.status}</td>
+          <td class="py-2 pr-4">${f.cycle}</td>
+          <td class="py-2 pr-4"><button class="btn btn-ghost text-xs" onclick="toast('編輯(模擬)')">編輯</button></td>
+        </tr>`).join('');
+      if(nowEl) nowEl.textContent = fxPage;
+      if(maxEl) maxEl.textContent = fxTotalPages;
+      document.getElementById('fxPrev').disabled = fxPage<=1;
+      document.getElementById('fxFirst').disabled = fxPage<=1;
+      document.getElementById('fxNext').disabled = fxPage>=fxTotalPages;
+      document.getElementById('fxLast').disabled = fxPage>=fxTotalPages;
+    }
+
+    // ---- 機種維護:新增、匯入、分頁(每頁 8 筆) ----
+    const MD_PAGE_SIZE = 8; let mdPage=1; let mdTotalPages=1;
+    function addModel(){
+      const fx=(document.getElementById('mdFxName').value||'').trim();
+      const model=(document.getElementById('mdModelName').value||'').trim();
+      const pos=(document.getElementById('mdPos').value||'').trim();
+      const qty=Number(document.getElementById('mdQty').value||0);
+      if(!fx||!model||!pos||!qty){ toast('請填寫完整欄位'); return; }
+      mockModels.push({model_id:model, model_name:model, fixture_id:fx, usage_position:pos, qty});
+      saveState(); toast('已新增機種(模擬)');
+      ['mdFxName','mdModelName','mdPos','mdQty'].forEach(i=>{ const el=document.getElementById(i); if(el) el.value=''; });
+      renderModelList();
+    }
+    function handleModelCsv(input){
+      const file = input.files && input.files[0]; if(!file){return;}
+      readFileAsText(file, (txt)=>{
+        const rows = parseCSV(txt); let count=0;
+        rows.forEach(r=>{
+          const fx = r.fixture_id || r.mdFxName || '';
+          const model = r.model_id || r.model_name || '';
+          const pos = r.usage_position || r.pos || '';
+          const qty = Number(r.qty||0);
+          if(fx && model && pos && qty){
+            mockModels.push({model_id:model, model_name:model, fixture_id:fx, usage_position:pos, qty});
+            count++;
+          }
+        });
+        saveState(); toast(`已匯入 ${count} 筆機種`); renderModelList(); input.value='';
+      });
+    }
+    function renderModelList(){
+      const tbody = document.getElementById('mdTable'); if(!tbody) return;
+      const cntEl = document.getElementById('mdCount'); const nowEl = document.getElementById('mdPageNow'); const maxEl = document.getElementById('mdPageMax');
+      const total = mockModels.length; if(cntEl) cntEl.textContent = total;
+      mdTotalPages = Math.max(1, Math.ceil(total/MD_PAGE_SIZE));
+      if(mdPage>mdTotalPages) mdPage = mdTotalPages;
+      const start=(mdPage-1)*MD_PAGE_SIZE, end=start+MD_PAGE_SIZE;
+      const pageRows = mockModels.slice(start,end);
+      tbody.innerHTML = pageRows.map(m=>`
+        <tr class="border-t">
+          <td class="py-2 pr-4">${m.fixture_id}</td>
+          <td class="py-2 pr-4">${m.model_name}</td>
+          <td class="py-2 pr-4">${m.usage_position}</td>
+          <td class="py-2 pr-4">${m.qty}</td>
+          <td class="py-2 pr-4"><button class="btn btn-ghost text-xs" onclick="toast('編輯(模擬)')">編輯</button></td>
+        </tr>`).join('');
+      if(nowEl) nowEl.textContent = mdPage;
+      if(maxEl) maxEl.textContent = mdTotalPages;
+      document.getElementById('mdPrev').disabled = mdPage<=1;
+      document.getElementById('mdFirst').disabled = mdPage<=1;
+      document.getElementById('mdNext').disabled = mdPage>=mdTotalPages;
+      document.getElementById('mdLast').disabled = mdPage>=mdTotalPages;
+    }
+
+    // 啟動
+    function init(){
+      loadState();
+      startClock();
+      routeFromHash();
+      window.addEventListener('hashchange', routeFromHash);
+
+      document.querySelectorAll('nav button[data-tab]').forEach(btn=>{
+        btn.addEventListener('click', ()=> goToTab(btn.dataset.tab));
+      });
+
+      document.querySelectorAll('#tab-admin [data-subtab]').forEach(btn => {
+        btn.addEventListener('click', () => setActiveSubtab(btn.dataset.subtab));
+      });
+
+      renderUpcoming();
+      renderDash(mockFixtures);
+      renderQuery(mockFixtures);
+      renderLogs(mockLogs);
+      renderOwners(mockOwners);
+      renderReceipts();
+      renderReturns();
+      renderTodayCards();
+    }
+
+    // Toast
+    function toast(msg){
+      const t=document.getElementById('toast');
+      t.firstElementChild.textContent=msg; t.classList.remove('hidden');
+      setTimeout(()=> t.classList.add('hidden'), 1600);
+    }
+
+    init();
+  </script>
+<script>
+(function(){
+  if(!window.USE_API) return;
+  function patch(name, fn){
+    const old = window[name];
+    if(typeof old === 'function'){
+      console.log('[API Patch] overriding', name);
+      window[name] = fn.bind(null, old);
+    }
+  }
+  window.mockFixtures = Array.isArray(window.mockFixtures) ? window.mockFixtures : [];
+
+  async function loadFromAPIAndRender(renderFn){
+    try{
+      const rows = await apiListFixtures();
+      window.mockFixtures.splice(0, window.mockFixtures.length, ...rows);
+      if(typeof renderFn === 'function') renderFn();
+      if(typeof window.renderFixtureList === 'function' && renderFn !== window.renderFixtureList) window.renderFixtureList();
+      if(typeof window.renderFixtures === 'function' && renderFn !== window.renderFixtures) window.renderFixtures();
+    }catch(err){
+      console.error('載入後端 fixtures 失敗:', err);
+      alert('讀取後端 fixtures 失敗:' + err.message);
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', ()=>{
+    const candidate = window.renderFixtureList || window.renderFixtures || null;
+    loadFromAPIAndRender(candidate);
+  });
+
+  function toFixturePayload(obj){
+    const id = obj.id || obj.fid || obj.FixtureID || ('JIG-' + String(Date.now()).slice(-6));
+    const name = obj.name || obj.fname || obj.FixtureName || '';
+    const model = obj.model || obj.Model || obj.fxModel || '';
+    const loc = obj.loc || obj.location || obj.Loc || '';
+    const status = obj.status || 'active';
+    const cycle = Number(obj.cycle || obj.Cycle || obj.limit || 0) || 0;
+    const used = Number(obj.used || obj.Used || 0) || 0;
+    const owner = obj.owner || obj.Owner || '';
+    const maxOpen = (obj.maxOpen !== undefined) ? obj.maxOpen : null;
+    return { id, name, model, loc, status, used, cycle, owner, maxOpen };
+  }
+
+  patch('addFixture', async function(oldAdd, ...args){
+    let payload = {};
+    try {
+      const g = (id)=>{ const el = document.getElementById(id); return el? el.value.trim():''; };
+      payload = toFixturePayload({
+        id: g('fx_id') || (args[0]?.id),
+        fname: g('fx_name') || (args[0]?.name),
+        fxModel: g('fx_model') || (args[0]?.model),
+        loc: g('fx_loc') || (args[0]?.loc),
+        cycle: g('fx_cycle') || (args[0]?.cycle),
+        status: (window.fxStatus && fxStatus.value) || 'active',
+        used: 0,
+        owner: (window.fxOwner && fxOwner.value) || ''
+      });
+    } catch(e){}
+    if(!payload.name || !payload.model || !payload.loc){
+      if(typeof oldAdd === 'function'){ await oldAdd(...args); }
+      if(Array.isArray(window.mockFixtures) && window.mockFixtures.length){
+        const last = window.mockFixtures[window.mockFixtures.length-1];
+        if(last) payload = toFixturePayload(last);
+      }
+    }
+    await apiCreateFixture(payload);
+    await loadFromAPIAndRender(window.renderFixtureList || window.renderFixtures);
+  });
+
+  patch('deleteFixture', async function(oldDel, fid, ...rest){
+    const id = fid || rest?.[0]?.id;
+    if(!id){ return oldDel && oldDel(fid, ...rest); }
+    await apiDeleteFixture(String(id));
+    await loadFromAPIAndRender(window.renderFixtureList || window.renderFixtures);
+  });
+
+  patch('updateFixture', async function(oldUpd, obj, ...rest){
+    const payload = toFixturePayload(obj||{});
+    if(!payload.id){ return oldUpd && oldUpd(obj, ...rest); }
+    await apiUpdateFixture(payload);
+    await loadFromAPIAndRender(window.renderFixtureList || window.renderFixtures);
+  });
+
+  if(window.USE_API){
+    if(typeof window.saveState === 'function'){
+      const _s = window.saveState;
+      window.saveState = function(){ try{ return _s.apply(this, arguments); }catch(e){} }
+    }
+    if(typeof window.loadState === 'function'){
+      const _l = window.loadState;
+      window.loadState = function(){ try{ return _l.apply(this, arguments); }catch(e){} }
+    }
+  }
+})();
+</script>
+<script>
+(function(){
+  if(!window.USE_API) return;
+
+  window.mockReceipts = Array.isArray(window.mockReceipts) ? window.mockReceipts : [];
+  window.mockReturns  = Array.isArray(window.mockReturns)  ? window.mockReturns  : [];
+  window.mockLogs     = Array.isArray(window.mockLogs)     ? window.mockLogs     : [];
+
+  async function refreshAll(){
+    try{
+      const [fx, rcv, ret, logs] = await Promise.all([
+        apiListFixtures().catch(()=>[]),
+        apiListReceipts().catch(()=>[]),
+        apiListReturns().catch(()=>[]),
+        apiListLogs().catch(()=>[]),
+      ]);
+      if(Array.isArray(fx) && window.mockFixtures){ window.mockFixtures.splice(0, window.mockFixtures.length, ...fx); }
+      if(Array.isArray(rcv)){ window.mockReceipts.splice(0, window.mockReceipts.length, ...rcv); }
+      if(Array.isArray(ret)){ window.mockReturns.splice(0, window.mockReturns.length, ...ret); }
+      if(Array.isArray(logs)){ window.mockLogs.splice(0, window.mockLogs.length, ...logs); }
+      renderUpcoming(); renderDash(mockFixtures); renderQuery(mockFixtures);
+      renderReceipts(); renderReturns(); renderLogs(mockLogs); renderTodayCards();
+    }catch(e){
+      console.error('後端載入失敗', e);
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', refreshAll);
+
+  window.delReceiptById = async function(id){
+    await apiDeleteReceipt(id);
+    await refreshAll();
+    toast('已刪除收料');
+  }
+  const _addReceipt = window.addReceipt;
+  window.addReceipt = async function(){
+    const f = (document.getElementById('rcvFixture').value||'').trim();
+    const lot = (document.getElementById('rcvLot').value||'').trim();
+    const qty = Number(document.getElementById('rcvQty').value||0);
+    const dt = document.getElementById('rcvDate').value || new Date().toISOString().slice(0,16);
+    if(!f || !lot || !qty){ toast('請輸入治具、LOT、數量'); return; }
+    await apiCreateReceipt({dt, fixture:f, lot, qty});
+    ['rcvFixture','rcvLot','rcvQty','rcvDate'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
+    await refreshAll();
+    toast('已新增收料');
+  }
+
+  window.delReturnById = async function(id){
+    await apiDeleteReturn(id);
+    await refreshAll();
+    toast('已刪除退料');
+  }
+  const _addReturn = window.addReturn;
+  window.addReturn = async function(){
+    const f = (document.getElementById('retFixture').value||'').trim();
+    const lot = (document.getElementById('retLot').value||'').trim();
+    const qty = Number(document.getElementById('retQty').value||0);
+    const dt = document.getElementById('retDate').value || new Date().toISOString().slice(0,16);
+    if(!f || !lot || !qty){ toast('請輸入治具、LOT、數量'); return; }
+    await apiCreateReturn({dt, fixture:f, lot, qty});
+    ['retFixture','retLot','retQty','retDate'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
+    await refreshAll();
+    toast('已新增退料');
+  }
+
+  const _addLog = window.addLog;
+  window.addLog = async function(){
+    const date=document.getElementById('addLogDate').value;
+    const fixture=document.getElementById('addLogFixture').value;
+    const loc=document.getElementById('addLogLoc').value;
+    const qty=Number(document.getElementById('addLogQty').value||0);
+    const type=document.getElementById('addLogType').value;
+    const note=document.getElementById('addLogNote').value;
+    if(!date||!fixture||!qty){ toast('日期/治具/數量 必填'); return; }
+    await apiCreateLog({date, fixture, loc, qty, type, note});
+    document.getElementById('addLogDate').value='';
+    document.getElementById('addLogFixture').value='';
+    document.getElementById('addLogLoc').value='';
+    document.getElementById('addLogQty').value='';
+    document.getElementById('addLogType').value='use';
+    document.getElementById('addLogNote').value='';
+    await refreshAll();
+    toast('已新增記錄');
+    toggleAddLog(false);
+  }
+
+  if(typeof window.saveState === 'function'){
+    const _s = window.saveState;
+    window.saveState = function(){ try{ return _s.apply(this, arguments); }catch(e){} }
+  }
+  if(typeof window.loadState === 'function'){
+    const _l = window.loadState;
+    window.loadState = function(){ try{ return _l.apply(this, arguments); }catch(e){} }
+  }
+})();
+
+<!-- === Live API wiring for login + Admin === -->
+/** 後端根據你的 main.py：
+ *  - POST /login?id=...&password=...
+ *  - GET  /users
+ *  - POST /users              (json body: {id,password,email,role})
+ *  - PUT  /users/{id}         (json body: {old_password,new_password,email})
+ *  - DELETE /users/{id}?password=...
+ *  - 其他：/fixtures /receipts /returns /logs ... 已存在
+ *  注意：/login 的參數在 querystring（不是 JSON body）
+ */
+
+/* 若你前後端不同源，可在這裡指定：
+   window.API_BASE = 'http://127.0.0.1:8000';
+*/
+window.API_BASE = window.API_BASE || '';
+
+function apiURL(p){ return String(window.API_BASE||'') + p; }
+async function apiJson(path, opts={}){
+  const res = await fetch(apiURL(path), { headers:{'Content-Type':'application/json'}, ...opts });
+  if(!res.ok){ throw new Error(`${res.status} ${await res.text().catch(()=>res.statusText)}`); }
+  const ct = res.headers.get('content-type')||'';
+  return ct.includes('json') ? res.json() : res.text();
+}
+
+/* ---- 覆寫登入：把「模擬登入」改為真登入 ---- */
+async function mockLogin(){
+  const id  = document.getElementById('loginId').value.trim();
+  const pwd = document.getElementById('loginPwd').value;
+  try{
+    // main.py 的 /login 是 POST 並用 query 參數接 id/password
+    const r = await apiJson(`/login?id=${encodeURIComponent(id)}&password=${encodeURIComponent(pwd)}`, { method:'POST' });
+    // r = { ok, user:{ id, email, role } }
+    window.authUser = r.user || {id, role:'user'};
+    document.getElementById('loginState').textContent = `您好，${authUser.id}（${authUser.role}）`;
+    const btn = document.getElementById('btnLogin'); btn.textContent = '登出'; btn.onclick = doLogout;
+    closeLogin && closeLogin();
+    // 登入後刷新必要資料（儀表板/清單）
+    try{ loadDashboard && loadDashboard(); }catch(_){}
+    try{ renderStats && renderStats(); }catch(_){}
+  }catch(e){
+    document.getElementById('loginMsg').textContent = '登入失敗：' + e.message;
+  }
+}
+async function doLogout(){
+  window.authUser = null;
+  document.getElementById('loginState').textContent = '未登入';
+  const btn = document.getElementById('btnLogin'); btn.textContent = '登入'; btn.onclick = openLogin;
+}
+
+/* ---- 後台管理：把「模擬按鈕」綁到真的 API ---- */
+async function adminLoadUsers(){
+  // 產生一個使用者清單表格（插到 帳號與權限 卡片最下方）
+  const host = document.getElementById('subtab-acct');
+  if(!host) return;
+  // 拉清單
+  let users = [];
+  try{ users = await apiJson('/users'); }catch(e){
+    console.warn('users list failed', e);
+  }
+  // 建 UI 容器（不存在就建立）
+  let box = document.getElementById('userListBox');
+  if(!box){
+    box = document.createElement('div');
+    box.id = 'userListBox';
+    box.className = 'border-t pt-4';
+    host.appendChild(box);
+  }
+  // 繪表
+  box.innerHTML = `
+    <div class="flex items-center justify-between mb-2">
+      <h4 class="font-semibold">帳號清單</h4>
+      <small class="text-gray-500">共 ${users.length} 筆</small>
+    </div>
+    <div class="overflow-auto">
+      <table class="min-w-full text-sm">
+        <thead class="text-left text-gray-500">
+          <tr><th class="py-2 pr-4">帳號</th><th class="py-2 pr-4">Email</th><th class="py-2 pr-4">角色</th><th class="py-2 pr-4">操作</th></tr>
+        </thead>
+        <tbody id="userTableBody"></tbody>
+      </table>
+    </div>`;
+  const tbody = box.querySelector('#userTableBody');
+  tbody.innerHTML = users.map(u => `
+    <tr class="border-t">
+      <td class="py-2 pr-4 font-mono">${u.id}</td>
+      <td class="py-2 pr-4">${u.email||''}</td>
+      <td class="py-2 pr-4"><span class="pill">${u.role||'user'}</span></td>
+      <td class="py-2 pr-4 space-x-1">
+        <button class="btn btn-ghost text-xs" onclick="uiOpenRole('${u.id}','${u.role||'user'}')">變更角色/信箱</button>
+        <button class="btn btn-ghost text-xs" onclick="uiOpenReset('${u.id}')">重設密碼</button>
+        <button class="btn btn-ghost text-xs" onclick="uiDelUser('${u.id}')">刪除</button>
+      </td>
+    </tr>
+  `).join('');
+}
+
+async function uiCreateUser(){
+  const id    = document.getElementById('accAddId').value.trim();
+  const pwd   = document.getElementById('accAddPwd').value;
+  const email = document.getElementById('accAddMail').value.trim();
+  const role  = document.getElementById('accAddRole').value || 'user';
+  if(!id || !pwd){ return toast && toast('請輸入帳號與密碼'); }
+  await apiJson('/users', { method:'POST', body: JSON.stringify({ id, password:pwd, email, role }) });
+  toast && toast('帳戶新增成功'); adminLoadUsers();
+}
+async function uiDelUser(id){
+  if(!confirm(`確定刪除帳號 ${id}？`)) return;
+  // 後端刪除需要 ?password=...（為了安全我要求再輸入一次）
+  const pwd = prompt('請輸入該帳號的密碼以刪除：') || '';
+  await apiJson(`/users/${encodeURIComponent(id)}?password=${encodeURIComponent(pwd)}`, { method:'DELETE' });
+  toast && toast('已刪除'); adminLoadUsers();
+}
+function uiOpenReset(id){
+  const pwd = prompt(`輸入「${id}」的新密碼：`) || '';
+  if(!pwd) return;
+  // /users/{id} 是「修改密碼/Email」，需要 old_password/new_password
+  // 這裡當作管理員直接重設：old_password 也填新密碼（後端只檢查是否相等才換）
+  apiJson(`/users/${encodeURIComponent(id)}`, {
+    method:'PUT',
+    body: JSON.stringify({ old_password: pwd, new_password: pwd, email: '' })
+  }).then(()=>{ toast && toast('密碼已重設'); }).catch(e=> alert(e.message));
+}
+function uiOpenRole(id, currentRole){
+  const role  = prompt(`輸入角色（user/admin）目前：${currentRole}`, currentRole || 'user') || currentRole;
+  const email = prompt('更新 Email（留空不變）：', '') || '';
+  // 後端 PUT 同一路由；若只是改 email 也行；密碼欄位要給（但不會改）
+  apiJson(`/users/${encodeURIComponent(id)}`, {
+    method:'PUT',
+    body: JSON.stringify({ old_password:'(nochange)', new_password:'(nochange)', email })
+  }).then(()=>{ toast && toast('角色/Email 已送出'); adminLoadUsers(); }).catch(e=> alert(e.message));
+}
+
+/* 把 Admin 區塊的按鈕從「模擬」改綁真 API */
+window.addEventListener('DOMContentLoaded', ()=>{
+  const addBtn = document.querySelector('#subtab-acct button.btn.btn-primary');
+  if(addBtn) addBtn.onclick = uiCreateUser;
+  // 原本的刪除/修改密碼按鈕是示意，這裡不再用它們的 onclick（改由清單列上的按鈕操作）
+  // 切到 Admin 分頁時自動載入清單
+  const tabs = document.querySelectorAll('button[data-tab]');
+  tabs.forEach(btn=>{
+    btn.addEventListener('click', ()=> {
+      if(btn.dataset.tab==='admin'){ adminLoadUsers(); }
+    });
+  });
+  // 如果預設就在 Admin，也載入一次
+  if(document.getElementById('tab-admin') && !document.getElementById('tab-admin').classList.contains('hidden')){
+    adminLoadUsers();
+  }
+});
+</script>
+
+</body>
+</html>

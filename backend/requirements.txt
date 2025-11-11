@@ -1,0 +1,38 @@
+# 治具管理系統 - Python 依賴清單
+# Fixture Management System - Python Dependencies
+
+# ==================== 核心框架 ====================
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+pydantic==2.5.0
+pydantic-settings==2.1.0
+
+# ==================== 資料庫 ====================
+pymysql==1.1.0
+cryptography==41.0.7  # PyMySQL 的 SSL 支援
+
+# ==================== 認證與安全 ====================
+python-jose[cryptography]==3.3.0  # JWT 處理
+passlib[bcrypt]==1.7.4  # 密碼加密
+python-multipart==0.0.6  # 表單資料處理
+bcrypt==4.1.1  # Bcrypt 加密
+
+# ==================== 工具套件 ====================
+python-dotenv==1.0.0  # 環境變數載入
+email-validator==2.1.0  # Email 驗證
+
+# ==================== 檔案處理 (可選) ====================
+openpyxl==3.1.2  # Excel 檔案處理
+pandas==2.1.4  # 資料分析
+python-docx==1.1.0  # Word 檔案處理
+reportlab==4.0.7  # PDF 生成
+
+# ==================== 測試 (可選) ====================
+# pytest==7.4.3
+# pytest-asyncio==0.21.1
+httpx==0.25.2  # 測試 HTTP 客戶端
+
+# ==================== 開發工具 (可選) ====================
+# black==23.12.0  # 程式碼格式化
+# flake8==6.1.0  # 程式碼檢查
+# mypy==1.7.1  # 型別檢查

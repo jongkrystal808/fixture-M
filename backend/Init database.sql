@@ -303,7 +303,7 @@ GROUP BY f.fixture_id, f.fixture_name, f.serial_number, f.storage_location,
          f.replacement_cycle, f.cycle_unit, o.primary_owner, f.note;
 
 -- 視圖2: 機種最大開站數
-CREATE VIEW view_model_max_stations AS
+CREATE VIEW view_m  odel_max_stations AS
 SELECT
     mm.model_id,
     mm.model_name,

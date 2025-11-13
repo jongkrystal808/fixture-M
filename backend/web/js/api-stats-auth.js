@@ -129,6 +129,17 @@ async function apiDeleteUser(id, password) {
   });
 }
 
+/**
+ * 取得使用與更換記錄統計摘要
+ * @returns {Promise<Object>} 使用/更換記錄摘要
+ */
+async function apiGetLogSummary() {
+  return api('/stats/log-summary');
+}
+
+window.apiGetLogSummary = apiGetLogSummary;
+
+
 // 匯出函數
 window.apiGetSummary = apiGetSummary;
 window.apiGetMaxStations = apiGetMaxStations;

@@ -46,24 +46,33 @@ async function api(path, opts = {}) {
 
 
 /**
- * JSON API 請求（相容舊版）
+ * JSON API 請求（自動附帶 JWT Token）
  * @param {string} path - API 路徑
  * @param {object} opts - fetch 選項
  * @returns {Promise} API 回應
  */
 async function apiJson(path, opts = {}) {
+  const token = localStorage.getItem('jwt_token');
+  const headers = {
+    'Content-Type': 'application/json',
+    ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+    ...(opts.headers || {})
+  };
+
   const res = await fetch(apiURL(path), {
-    headers: { 'Content-Type': 'application/json' },
-    ...opts
+    ...opts,
+    headers
   });
-  
+
   if (!res.ok) {
-    throw new Error(`${res.status} ${await res.text().catch(() => res.statusText)}`);
+    const txt = await res.text().catch(() => '');
+    throw new Error(`API ${path} failed: ${res.status} ${txt}`);
   }
-  
+
   const ct = res.headers.get('content-type') || '';
   return ct.includes('json') ? res.json() : res.text();
 }
+
 
 // 匯出函數
 window.apiURL = apiURL;

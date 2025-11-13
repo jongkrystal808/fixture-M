@@ -17,12 +17,12 @@ async function apiListUsers() {
 
 /** 建立使用者 */
 async function apiCreateUser(data) {
-  return await apiJson("/users", "POST", data);
+  return await apiJson("/users", { method: "POST", body: JSON.stringify(data) });
 }
 
 /** 更新使用者資料（角色 / 信箱 / 密碼等） */
 async function apiUpdateUser(id, data) {
-  return await apiJson(`/users/${id}`, "PUT", data);
+  return await apiJson(`/users/${id}`, { method: "PUT", body: JSON.stringify(data) });
 }
 
 /** 刪除使用者（以密碼驗證） */
@@ -33,8 +33,9 @@ async function apiDeleteUser(id, password) {
 
 /** 管理員重設使用者密碼 */
 async function apiAdminResetPassword(id, newPassword) {
-  return await apiJson(`/auth/admin/reset-password/${id}`, "POST", {
-    new_password: newPassword
+  return await apiJson(`/auth/admin/reset-password/${id}`, {
+    method: "POST",
+    body: JSON.stringify({ new_password: newPassword })
   });
 }
 

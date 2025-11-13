@@ -7,25 +7,44 @@
 // 使用記錄 API
 // ============================================
 
+
 /**
- * 查詢使用記錄列表
- * @returns {Promise<Array>} 使用記錄列表
+ * 查詢使用記錄列表（更新對應新欄位）
  */
 async function apiListUsageLogs() {
-  return api('/logs/usage');
+  return api('/logs/usage').then(list =>
+    list.map(item => ({
+      id: item.log_id,
+      fixture_id: item.fixture_id,
+      fixture_name: item.fixture_name || '',
+      station_id: item.station_id,
+      station_name: item.station_name || '',
+      use_count: item.use_count,
+      abnormal_status: item.abnormal_status || '',
+      operator: item.operator || '',
+      note: item.note || '',
+      used_at: item.used_at
+    }))
+  );
 }
 
 /**
  * 建立使用記錄
- * @param {Object} log - 使用記錄資料
- * @returns {Promise<Object>} 建立的使用記錄
  */
 async function apiCreateUsageLog(log) {
   return api('/logs/usage', {
     method: 'POST',
-    body: JSON.stringify(log)
+    body: JSON.stringify({
+      fixture_id: log.fixture_id,
+      station_id: log.station_id || null,
+      use_count: log.use_count || 1,
+      abnormal_status: log.abnormal_status || null,
+      operator: log.operator || null,
+      note: log.note || null
+    })
   });
 }
+
 
 /**
  * 刪除使用記錄
@@ -47,7 +66,17 @@ async function apiDeleteUsageLog(id) {
  * @returns {Promise<Array>} 更換記錄列表
  */
 async function apiListReplacementLogs() {
-  return api('/logs/replacement');
+  return api('/logs/replacement').then(list =>
+    list.map(item => ({
+      fixture_id: item.fixture_id,
+      fixture_name: item.fixture_name || '',
+      replacement_date: item.replacement_date,
+      reason: item.reason || '',
+      executor: item.executor || '',
+      note: item.note || '',
+      created_at: item.created_at
+    }))
+  );
 }
 
 /**
@@ -58,9 +87,16 @@ async function apiListReplacementLogs() {
 async function apiCreateReplacementLog(log) {
   return api('/logs/replacement', {
     method: 'POST',
-    body: JSON.stringify(log)
+    body: JSON.stringify({
+      fixture_id: log.fixture_id,
+      replacement_date: log.replacement_date,
+      reason: log.reason || null,
+      executor: log.executor || null,
+      note: log.note || null
+    })
   });
 }
+
 
 /**
  * 刪除更換記錄
@@ -73,22 +109,10 @@ async function apiDeleteReplacementLog(id) {
   });
 }
 
-/**
- * 通用的記錄 API（相容舊版）
- * @param {Object} log - 記錄資料
- * @returns {Promise<Object>} 建立的記錄
- */
-async function apiCreateLog(log) {
-  // 根據類型判斷使用哪個 API
-  if (log.type === 'replace' || log.type === 'replacement') {
-    return apiCreateReplacementLog(log);
-  } else {
-    return apiCreateUsageLog(log);
-  }
-}
+
 
 /**
- * 查詢所有記錄（相容舊版）
+ * 通用查詢所有記錄（相容舊版）
  * @returns {Promise<Array>} 所有記錄
  */
 async function apiListLogs() {
@@ -96,28 +120,49 @@ async function apiListLogs() {
     apiListUsageLogs(),
     apiListReplacementLogs()
   ]);
-  
-  // 合併並排序
-  return [...usageLogs, ...replacementLogs].sort((a, b) => {
-    const dateA = new Date(a.used_at || a.replacement_date || a.created_at);
-    const dateB = new Date(b.used_at || b.replacement_date || b.created_at);
-    return dateB - dateA;
-  });
+
+  const formatted = [
+    ...usageLogs.map(u => ({
+      type: '使用',
+      date: u.used_at,
+      fixture_id: u.fixture_id,
+      station_id: u.station_id,
+      operator: u.operator,
+      note: u.note,
+      abnormal_status: u.abnormal_status
+    })),
+    ...replacementLogs.map(r => ({
+      type: '更換',
+      date: r.replacement_date,
+      fixture_id: r.fixture_id,
+      executor: r.executor,
+      reason: r.reason,
+      note: r.note
+    }))
+  ];
+
+  return formatted.sort((a, b) => new Date(b.date) - new Date(a.date));
 }
 
-/**
- * 刪除記錄（相容舊版）
- * @param {number} id - 記錄 ID
- * @param {string} type - 記錄類型
- * @returns {Promise<Object>} 刪除結果
- */
+// 通用新增
+async function apiCreateLog(log) {
+  if (log.type === 'replacement') {
+    return apiCreateReplacementLog(log);
+  } else {
+    return apiCreateUsageLog(log);
+  }
+}
+
+// 通用刪除
 async function apiDeleteLog(id, type) {
-  if (type === 'replace' || type === 'replacement') {
+  if (type === 'replacement') {
     return apiDeleteReplacementLog(id);
   } else {
     return apiDeleteUsageLog(id);
   }
 }
+
+
 
 // 匯出函數
 window.apiListUsageLogs = apiListUsageLogs;

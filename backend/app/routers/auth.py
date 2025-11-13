@@ -6,8 +6,8 @@ Authentication API Routes
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
-
 from backend.app.models import user
+
 from backend.app.models.user import (
     UserCreate,
     UserLogin,

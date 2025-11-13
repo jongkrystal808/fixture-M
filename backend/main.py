@@ -21,7 +21,8 @@ from backend.app.routers.auth import router as auth_router
 from backend.app.routers.fixtures import router as fixtures_router
 from backend.app.routers.receipts import router as receipts_router
 from backend.app.routers.returns import router as returns_router
-from backend.app.routers.logs import router as logs_router
+from backend.app.routers.replacement import router as replacement_router
+from backend.app.routers.usage import router as usage_router
 from backend.app.routers.models import router as models_router
 from backend.app.routers.stats import router as stats_router
 from backend.app.routers.users import router as users_router
@@ -202,7 +203,8 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 app.include_router(receipts_router, prefix="/api/v2")
 app.include_router(fixtures_router, prefix="/api/v2")
 app.include_router(returns_router, prefix="/api/v2")
-app.include_router(logs_router, prefix="/api/v2")
+app.include_router(replacement_router, prefix="/api/v2")
+app.include_router(usage_router, prefix="/api/v2")
 app.include_router(models_router, prefix="/api/v2")
 app.include_router(stats_router, prefix="/api/v2")
 app.include_router(users_router, prefix="/api/v2")

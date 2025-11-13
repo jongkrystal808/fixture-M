@@ -556,6 +556,17 @@ async function viewStationRequirements(modelId, stationId, stationCode, stationN
   }
 }
 
+/** 根據登入者角色顯示或隱藏後台分頁 */
+function updateAdminTabVisibility(userRole) {
+  const adminTab = document.querySelector('button[data-tab="admin"]');
+  if (!adminTab) return;
+
+  if (userRole === "admin") {
+    adminTab.classList.remove("hidden");
+  } else {
+    adminTab.classList.add("hidden");
+  }
+}
 
 // ============================================
 // 應用程式初始化
@@ -586,7 +597,10 @@ async function initApp() {
   if (isLoggedIn) {
     console.log('使用者已登入:', window.authUser);
   }
-  
+
+    // ✅ 根據角色顯示/隱藏後台按鈕
+  updateAdminTabVisibility(window.authUser?.role);
+
   // 載入初始資料
   await loadDashboard();
   
@@ -596,6 +610,7 @@ async function initApp() {
 // ============================================
 // DOMContentLoaded 事件
 // ============================================
+updateAdminTabVisibility(JSON.parse(localStorage.getItem("current_user") || "{}").role);
 
 document.addEventListener('DOMContentLoaded', initApp);
 

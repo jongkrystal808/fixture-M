@@ -140,24 +140,19 @@ async function uiDelUser(id) {
 }
 
 /**
- * 重設密碼
+ * 重設密碼 (管理員)
  * @param {string} id - 使用者 ID
  */
-function uiOpenReset(id) {
+async function uiOpenReset(id) {
   const pwd = prompt(`輸入「${id}」的新密碼：`) || '';
   if (!pwd) return;
-  
-  apiUpdateUser(id, {
-    old_password: pwd,
-    new_password: pwd,
-    email: ''
-  })
-  .then(() => {
+
+  try {
+    await apiAdminResetPassword(id, pwd);
     toast('密碼已重設', 'success');
-  })
-  .catch(e => {
+  } catch (e) {
     toast('重設失敗：' + e.message, 'error');
-  });
+  }
 }
 
 /**

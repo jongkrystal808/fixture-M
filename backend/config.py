@@ -45,8 +45,8 @@ class Settings:
     DB_POOL_RECYCLE: int = 3600
 
     # 重試配置
-    DB_RETRY_TIMES: int = 10
-    DB_RETRY_DELAY: float = 2.0
+    DB_RETRY_TIMES: int = 3
+    DB_RETRY_DELAY: float = 1.0
 
     @property
     def DATABASE_URL(self) -> str:

@@ -486,6 +486,10 @@ app.include_router(example.router, prefix="/api")
 pytest tests/
 ```
 
+### 健康檢查與工具
+- `backend.check_database_ready()`：快速檢查資料庫連線與表格是否就緒，回傳 `(bool, str)` 方便日誌記錄。
+- `backend.db`：資料庫單例，初始化時改為柔性連線，若環境未啟動資料庫會以重試設定（`DB_RETRY_TIMES=3`、`DB_RETRY_DELAY=1.0`）嘗試後返回友善提示，避免匯入即中斷。
+
 ### 程式碼格式化
 
 ```bash

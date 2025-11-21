@@ -16,9 +16,14 @@ class Database:
 
     def __init__(self):
         self.connection = None
-        self.connect()
+        # 初始化時避免因環境未啟動資料庫而拋出例外，改用柔性連線。
+        self.connect(
+            max_retries=settings.DB_RETRY_TIMES,
+            retry_delay=settings.DB_RETRY_DELAY,
+            raise_on_fail=False,
+        )
 
-    def connect(self, max_retries: int = 10, retry_delay: int = 2):
+    def connect(self, max_retries: Optional[int] = None, retry_delay: Optional[float] = None, raise_on_fail: bool = True):
         """
         建立資料庫連接，支援自動重試
 
@@ -26,6 +31,9 @@ class Database:
             max_retries: 最大重試次數
             retry_delay: 重試間隔（秒）
         """
+        max_retries = max_retries or settings.DB_RETRY_TIMES
+        retry_delay = retry_delay or settings.DB_RETRY_DELAY
+
         for attempt in range(max_retries):
             try:
                 self.connection = pymysql.connect(
@@ -45,8 +53,12 @@ class Database:
                     print(f"⚠️  資料庫連接失敗 (第 {attempt + 1} 次)，{retry_delay} 秒後重試...")
                     time.sleep(retry_delay)
                 else:
-                    print(f"❌ 資料庫連接失敗：{e}")
-                    raise
+                    message = f"❌ 資料庫連接失敗：{e}"
+                    print(message)
+                    if raise_on_fail:
+                        raise
+                    self.connection = None
+                    return
 
     def check_connection(self) -> bool:
         """
@@ -61,17 +73,17 @@ class Database:
         except Exception:
             return False
 
-    def ensure_connection(self):
+    def ensure_connection(self, raise_on_fail: bool = True):
         """確保資料庫連接正常，如果斷開則重新連接（不進入遞迴）"""
         try:
             if self.connection is None:
-                self.connect()
+                self.connect(raise_on_fail=raise_on_fail)
                 return
             # 試著檢查連線；失敗就重連
             self.connection.ping(reconnect=False)
         except Exception:
             print("⚠️  資料庫連接已斷開，嘗試重新連接...")
-            self.connect()
+            self.connect(raise_on_fail=raise_on_fail)
 
     @contextmanager
     def get_cursor(self):

@@ -1,122 +1,137 @@
 /**
- * 治具相關 API 服務
+ * 治具相關 API 服務 (v3.0)
  * api-fixtures.js
+ *
+ * ✔ 新增 token 自動帶入 customer_id
+ * ✔ 完整符合後端 /fixtures Router v3.0
  */
 
-// ============================================
+// ================================
+// 工具：取得使用者 token 中的 customer_id
+// ================================
+function getCustomerId() {
+  // Token 已由後端在登入時生成，內含 customer_id
+  const raw = localStorage.getItem("auth_user");
+  if (!raw) return null;
+  try {
+    const obj = JSON.parse(raw);
+    return obj.customer_id || null;
+  } catch (e) {
+    console.warn("無法解析 auth_user:", e);
+    return null;
+  }
+}
+
+// ================================
 // 治具 CRUD API
-// ============================================
+// ================================
 
 /**
- * 查詢治具列表（支援分頁 / 篩選 / 搜尋）
- * @param {Object} options
- * @param {number} [options.page=1] - 第幾頁（從 1 開始）
- * @param {number} [options.pageSize=8] - 每頁筆數
- * @param {string} [options.statusFilter] - 狀態篩選（正常 / 返還 / 報廢）
- * @param {number} [options.ownerId] - 負責人 ID
- * @param {string} [options.search] - 關鍵字 (fixture_id / fixture_name)
- * @returns {Promise<{total:number, fixtures:Array}>}
+ * 查詢治具列表（支援分頁 / 搜尋 / 篩選）
  */
 async function apiListFixtures(options = {}) {
   const {
     page = 1,
     pageSize = 8,
-    statusFilter = '',
-    ownerId = '',
-    search = ''
+    statusFilter = "",
+    ownerId = "",
+    search = ""
   } = options;
 
   const params = new URLSearchParams();
-  params.set('skip', String((page - 1) * pageSize));
-  params.set('limit', String(pageSize));
-  if (statusFilter) params.set('status_filter', statusFilter);
-  if (ownerId) params.set('owner_id', String(ownerId));
-  if (search) params.set('search', search);
+  params.set("skip", String((page - 1) * pageSize));
+  params.set("limit", String(pageSize));
 
-  return api('/fixtures?' + params.toString());
+  if (statusFilter) params.set("status_filter", statusFilter);
+  if (ownerId) params.set("owner_id", String(ownerId));
+  if (search) params.set("search", search);
+
+  // ⚠ 後端會依 token 中的 customer_id 過濾，不需額外傳 customer_id
+  return api("/fixtures?" + params.toString());
 }
 
 /**
  * 查詢治具狀態視圖（對應 view_fixture_status）
- * @param {Object} options
- * @param {number} [options.page=1]
- * @param {number} [options.pageSize=50]
- * @param {string} [options.replacementStatus] - 更換狀態 (需更換/正常)
- * @returns {Promise<Array>}
+ * 顯示：replacement_status / last_replacement_date
  */
 async function apiListFixturesStatus(options = {}) {
   const {
     page = 1,
     pageSize = 50,
-    replacementStatus = ''
+    replacementStatus = ""
   } = options;
 
   const params = new URLSearchParams();
-  params.set('skip', String((page - 1) * pageSize));
-  params.set('limit', String(pageSize));
-  if (replacementStatus) params.set('replacement_status', replacementStatus);
+  params.set("skip", String((page - 1) * pageSize));
+  params.set("limit", String(pageSize));
 
-  return api('/fixtures/status/view?' + params.toString());
+  if (replacementStatus)
+    params.set("replacement_status", replacementStatus);
+
+  return api("/fixtures/status/view?" + params.toString());
 }
 
 /**
  * 查詢單一治具
- * @param {string} fixtureId - 治具編號
- * @returns {Promise<Object>} 治具資料（含 owner）
  */
 async function apiGetFixture(fixtureId) {
   return api(`/fixtures/${encodeURIComponent(fixtureId)}`);
 }
 
 /**
- * 建立治具
- * @param {Object} fixture - 治具資料（需包含 fixture_id, fixture_name ...）
- * @returns {Promise<Object>} 建立的治具
+ * 建立治具（FixtureCreate）
+ *
+ * 需要欄位：
+ * fixture_id
+ * fixture_name
+ * owner_id
+ * self_purchased_qty
+ * customer_supplied_qty
+ * replacement_cycle
+ * cycle_unit
+ * note
+ *
+ * ⚠ customer_id 不用傳，由 token 決定
  */
 async function apiCreateFixture(fixture) {
-  return api('/fixtures', {
-    method: 'POST',
+  return api("/fixtures", {
+    method: "POST",
     body: JSON.stringify(fixture)
   });
 }
 
 /**
- * 更新治具
- * @param {string} fixtureId - 治具編號
- * @param {Object} patch - 要更新的欄位（FixtureUpdate 結構）
- * @returns {Promise<Object>} 更新後的治具
+ * 更新治具（FixtureUpdate）
  */
 async function apiUpdateFixture(fixtureId, patch) {
   return api(`/fixtures/${encodeURIComponent(fixtureId)}`, {
-    method: 'PUT',
+    method: "PUT",
     body: JSON.stringify(patch)
   });
 }
 
 /**
- * 刪除治具
- * @param {string} fixtureId - 治具編號
- * @returns {Promise<Object>} 刪除結果
+ * 刪除治具（後端要求 fixture_id）
  */
 async function apiDeleteFixture(fixtureId) {
   return api(`/fixtures/${encodeURIComponent(fixtureId)}`, {
-    method: 'DELETE'
+    method: "DELETE"
   });
 }
 
 /**
- * 簡化治具列表（下拉用）
- * @param {string} [statusFilter] - 狀態篩選
- * @returns {Promise<Array>}
+ * 下拉選單：取得簡易治具清單
+ * (/fixtures/simple/list)
  */
-async function apiGetFixturesSimple(statusFilter = '') {
+async function apiGetFixturesSimple(statusFilter = "") {
   const params = new URLSearchParams();
-  if (statusFilter) params.set('status_filter', statusFilter);
-  const query = params.toString() ? ('?' + params.toString()) : '';
-  return api('/fixtures/simple/list' + query);
+  if (statusFilter) params.set("status_filter", statusFilter);
+
+  const query = params.toString() ? "?" + params.toString() : "";
+  return api("/fixtures/simple/list" + query);
 }
 
-// 匯出函數
+// 匯出
 window.apiListFixtures = apiListFixtures;
 window.apiListFixturesStatus = apiListFixturesStatus;
 window.apiGetFixture = apiGetFixture;

@@ -1,165 +1,154 @@
 /**
- * 退料相關 API
+ * 退料 Returns API (v3.0)
  * api-returns.js
  *
- * 後端路由：
- *   GET    /api/v2/returns
- *   POST   /api/v2/returns
- *   DELETE /api/v2/returns/{id}
- *
- * 退料欄位（returns_table）：
- *   id, type('batch'|'individual'), vendor, order_no,
- *   fixture_code, serial_start, serial_end, serials,
- *   operator, note, created_at
+ * ✔ 完全對應後端 v3.0 returns router
+ * ✔ vendor 已移除
+ * ✔ fixture_code → fixture_id
+ * ✔ 支援 batch / individual
+ * ✔ 分頁查詢 (skip / limit)
+ * ✔ 匯入 returns/import
  */
 
-/* ---------------------------------------------------------
- * 基本 CRUD
- * --------------------------------------------------------- */
+// ======================================================
+// 列表查詢（分頁 + 搜尋）
+// ======================================================
 
 /**
- * 查詢退料記錄列表
- * @param {object} params 查詢條件
+ * 查詢退料列表
+ * @param {Object} options
+ * @param {number} [options.page=1]
+ * @param {number} [options.pageSize=20]
+ * @param {string} [options.fixtureId]
+ * @param {string} [options.orderNo]
+ * @param {string} [options.operator]
  */
-async function apiListReturns(params = {}) {
-  const query = new URLSearchParams(params).toString();
-  const path = query ? `/returns?${query}` : `/returns`;
-  return api(path);
+async function apiListReturns(options = {}) {
+  const {
+    page = 1,
+    pageSize = 20,
+    fixtureId = "",
+    orderNo = "",
+    operator = ""
+  } = options;
+
+  const params = new URLSearchParams();
+  params.set("skip", String((page - 1) * pageSize));
+  params.set("limit", String(pageSize));
+
+  if (fixtureId) params.set("fixture_id", fixtureId);
+  if (orderNo) params.set("order_no", orderNo);
+  if (operator) params.set("operator", operator);
+
+  return api("/returns?" + params.toString());
 }
 
+// ======================================================
+// 查詢單筆退料紀錄
+// ======================================================
+
+async function apiGetReturn(returnId) {
+  return api(`/returns/${encodeURIComponent(returnId)}`);
+}
+
+// ======================================================
+// 新增退料（batch / individual）
+// ======================================================
+
 /**
- * 新增一筆退料記錄
- * @param {object} data
- *   {
- *     type: 'batch' | 'individual',
- *     vendor: string,
- *     order_no: string,
- *     fixture_code: string,
- *     serial_start?: string,
- *     serial_end?: string,
- *     serials?: string,
- *     operator?: string,
- *     note?: string
- *   }
+ * 新增退料
+ * @param {Object} data - ReturnCreate 格式
+ * {
+ *   type: "batch" | "individual",
+ *   fixture_id: "L-00018",
+ *   order_no: "",
+ *   serial_start: "",
+ *   serial_end: "",
+ *   serials: "",
+ *   operator: "",
+ *   note: ""
+ * }
  */
 async function apiCreateReturn(data) {
-  return api('/returns', {
-    method: 'POST',
-    body: JSON.stringify({
-      type: data.type || 'batch',
-      vendor: data.vendor || null,
-      order_no: data.order_no || null,
-      fixture_code: data.fixture_code || null,
-      serial_start: data.type === 'batch' ? (data.serial_start || null) : null,
-      serial_end: data.type === 'batch' ? (data.serial_end || null) : null,
-      serials: data.type === 'individual' ? (data.serials || null) : null,
-      operator: data.operator || null,
-      note: data.note || null
-    })
+  return api("/returns", {
+    method: "POST",
+    body: JSON.stringify(data)
   });
 }
 
-/**
- * 刪除退料記錄
- */
+// ======================================================
+// 批量匯入退料（Excel → JSON → 後端）
+// ======================================================
+
+async function apiImportReturns(items) {
+  return api("/returns/import", {
+    method: "POST",
+    body: JSON.stringify(items)
+  });
+}
+
+// ======================================================
+// 刪除退料紀錄
+// ======================================================
+
 async function apiDeleteReturn(id) {
-  return api(`/returns/${id}`, {
-    method: 'DELETE'
+  return api(`/returns/${encodeURIComponent(id)}`, {
+    method: "DELETE"
   });
 }
 
-/* ---------------------------------------------------------
- * Excel 匯入：解析 .xlsx → JSON → 後端
- * --------------------------------------------------------- */
+// ======================================================
+// Excel 匯入 by .xlsx 檔案
+// ======================================================
 
-/**
- * 匯入退料 Excel
- *
- * Excel 欄位格式（建議與收料一致）：
- *   type | vendor | order_no | fixture_code |
- *   serial_start | serial_end | serials | operator | note
- *
- * 由於後端尚未提供 /returns/import
- * 故此處會「逐筆呼叫 apiCreateReturn」
- */
 async function apiImportReturnsXlsx(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
 
     reader.onload = async (e) => {
       try {
-        const workbook = XLSX.read(e.target.result, { type: 'binary' });
+        const workbook = XLSX.read(e.target.result, { type: "binary" });
         const sheet = workbook.Sheets[workbook.SheetNames[0]];
-        const rawRows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+        const rawRows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
 
-        const rows = rawRows.map((r) => {
-          const type = (r.type || 'batch').toLowerCase();
+        const items = rawRows.map(r => {
+          const type = (r.type || "batch").toLowerCase() === "individual"
+            ? "individual"
+            : "batch";
+
           return {
-            type: type === 'individual' ? 'individual' : 'batch',
-            vendor: (r.vendor || '').trim() || null,
-            order_no: (r.order_no || '').trim() || null,
-            fixture_code: (r.fixture_code || '').trim() || null,
-            serial_start: type === 'batch' ? ((r.serial_start || '').trim() || null) : null,
-            serial_end: type === 'batch' ? ((r.serial_end || '').trim() || null) : null,
-            serials: type === 'individual' ? ((r.serials || '').trim() || null) : null,
-            operator: (r.operator || '').trim() || null,
-            note: (r.note || '').trim() || null
+            type,
+            fixture_id: (r.fixture_id || "").trim(),
+            order_no: (r.order_no || "").trim() || null,
+            serial_start: type === "batch" ? (r.serial_start || "").trim() || null : null,
+            serial_end: type === "batch" ? (r.serial_end || "").trim() || null : null,
+            serials: type === "individual" ? (r.serials || "").trim() || null : null,
+            operator: (r.operator || "").trim() || null,
+            note: (r.note || "").trim() || null
           };
         });
 
-        let successCount = 0;
-        const skippedRows = [];
+        // 呼叫後端批量匯入
+        const result = await apiImportReturns(items);
+        resolve(result);
 
-        for (let i = 0; i < rows.length; i++) {
-          const excelRowNo = i + 2;
-          const row = rows[i];
-
-          if (!row.fixture_code) {
-            skippedRows.push({
-              row: excelRowNo,
-              error: 'fixture_code 必填'
-            });
-            continue;
-          }
-
-          try {
-            await apiCreateReturn(row);
-            successCount++;
-          } catch (err) {
-            skippedRows.push({
-              row: excelRowNo,
-              error: String(err)
-            });
-          }
-        }
-
-        const failCount = skippedRows.length;
-        const message =
-          failCount === 0
-            ? '退料匯入完成，全部成功'
-            : '退料匯入完成，有部分資料被略過';
-
-        resolve({
-          message,
-          success_count: successCount,
-          fail_count: failCount,
-          skipped_rows: skippedRows
-        });
       } catch (err) {
         reject(err);
       }
     };
 
-    reader.onerror = (err) => reject(err);
+    reader.onerror = reject;
     reader.readAsBinaryString(file);
   });
 }
 
-/* ---------------------------------------------------------
- * 導出到全域（給 app-returns.js 使用）
- * --------------------------------------------------------- */
+// ======================================================
+// 導出到全域（給 app-returns.js 使用）
+// ======================================================
 
 window.apiListReturns = apiListReturns;
+window.apiGetReturn = apiGetReturn;
 window.apiCreateReturn = apiCreateReturn;
 window.apiDeleteReturn = apiDeleteReturn;
+window.apiImportReturns = apiImportReturns;
 window.apiImportReturnsXlsx = apiImportReturnsXlsx;

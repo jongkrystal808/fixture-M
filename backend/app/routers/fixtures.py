@@ -1,26 +1,13 @@
-"""
-治具管理 API (v3.0 完整版本)
-Fixtures API (Aligned with DB v3.0 Schema)
-
-所有邏輯皆完全對應資料庫 v3.0：
-- 使用 id + customer_id 主鍵
-- 所有數量欄位：available/deployed/maintenance/scrapped/returned_qty
-- 不再使用序號欄位，由 fixture_serials 管理
-- 所有查詢需強制提供 customer_id（多客戶隔離）
-"""
-
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from typing import Optional, List
 import traceback
 
 from backend.app.database import db
 from backend.app.dependencies import get_current_user, get_current_admin
-
 from backend.app.models.fixture import (
     FixtureCreate,
     FixtureUpdate,
     FixtureResponse,
-    FixtureWithOwner,
     FixtureListResponse,
     FixtureSimple,
     FixtureStatus_View,
@@ -124,7 +111,7 @@ async def create_fixture(
 # 取得治具詳情 (READ)
 # ============================================================
 
-@router.get("/{fixture_id}", response_model=FixtureWithOwner, summary="取得治具詳情")
+@router.get("/{fixture_id}", response_model=FixtureResponse, summary="取得治具詳情")
 async def get_fixture(
     fixture_id: str,
     customer_id: str = Query(..., description="客戶 ID")
@@ -165,7 +152,7 @@ async def get_fixture(
         if not result:
             raise HTTPException(status_code=404, detail="治具不存在")
 
-        return FixtureWithOwner(**result[0])
+        return FixtureResponse(**result[0])
 
     except Exception as e:
         print("❌ [get_fixture] ERROR:\n", traceback.format_exc())
@@ -250,7 +237,7 @@ async def list_fixtures(
 
         return FixtureListResponse(
             total=total,
-            fixtures=[FixtureWithOwner(**row) for row in rows]
+            fixtures=[FixtureResponse(**row) for row in rows]
         )
 
     except Exception as e:
@@ -262,7 +249,7 @@ async def list_fixtures(
 # 更新治具 (UPDATE)
 # ============================================================
 
-@router.put("/{fixture_id}", response_model=FixtureWithOwner, summary="更新治具")
+@router.put("/{fixture_id}", response_model=FixtureResponse, summary="更新治具")
 async def update_fixture(
     fixture_id: str,
     data: FixtureUpdate,

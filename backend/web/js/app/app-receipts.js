@@ -1,13 +1,13 @@
 /**
+ * 收料登記前端控制 (v3.0)
  * app-receipts.js
- * 收料登記前端控制邏輯
  *
- * 功能：
- *   - 子分頁切換（收料 / 退料）
- *   - 載入收料記錄
- *   - 新增（批量 / 少量）
- *   - 匯入 Excel(.xlsx)
- *   - 刪除記錄
+ * ✔ 支援 batch / individual
+ * ✔ 使用 fixture_id（取代 fixture_code）
+ * ✔ 移除 vendor（已被移除）
+ * ✔ 支援分頁 / 搜尋
+ * ✔ 支援 Excel 匯入
+ * ✔ 依照新後端 receipts router 完全重寫
  */
 
 /* ============================================================
@@ -29,7 +29,7 @@ document.querySelectorAll("[data-rtab]").forEach(btn => {
 });
 
 /* ============================================================
- * 🔵 表單切換（批量 / 個別序號）
+ * 表單切換（批量 / 個別序號）
  * ============================================================ */
 
 const receiptTypeSelect = document.getElementById("receiptAddType");
@@ -42,7 +42,7 @@ if (receiptTypeSelect) {
 }
 
 /* ============================================================
- * 🔵 收料：新增表單開關
+ * 收料：新增表單開關
  * ============================================================ */
 
 function toggleReceiptAdd(show) {
@@ -50,22 +50,29 @@ function toggleReceiptAdd(show) {
 }
 
 /* ============================================================
- * 🔵 收料：下載 Excel 範本
+ * 收料：下載 Excel 範本 (v3.0)
  * ============================================================ */
 
 function downloadReceiptTemplate() {
-  const headers = [
-    ["type", "vendor", "order_no", "fixture_code",
-     "serial_start", "serial_end", "serials", "operator", "note"]
-  ];
+  const headers = [[
+    "type",
+    "fixture_id",
+    "order_no",
+    "serial_start",
+    "serial_end",
+    "serials",
+    "operator",
+    "note"
+  ]];
+
   const ws = XLSX.utils.aoa_to_sheet(headers);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "receipt_template");
-  XLSX.writeFile(wb, "receipt_template.xlsx");
+  XLSX.writeFile(wb, "receipt_template_v3.xlsx");
 }
 
 /* ============================================================
- * 🔵 收料：匯入 Excel
+ * 收料：匯入 Excel (.xlsx)
  * ============================================================ */
 
 async function handleReceiptImport(input) {
@@ -81,43 +88,67 @@ async function handleReceiptImport(input) {
     loadReceipts();
   } catch (err) {
     console.error(err);
-    toast("匯入失敗");
+    toast("匯入失敗", "error");
   }
 
   input.value = "";
 }
 
 /* ============================================================
- * 🔵 收料：載入列表
+ * 🔵 分頁狀態
+ * ============================================================ */
+
+let receiptsPage = 1;
+let receiptsPageSize = 20;
+
+/* ============================================================
+ * 收料：載入列表
  * ============================================================ */
 
 async function loadReceipts() {
   const fixture = document.getElementById("receiptSearchFixture").value.trim();
-  const vendor = document.getElementById("receiptSearchVendor").value.trim();
   const order = document.getElementById("receiptSearchOrder").value.trim();
   const op = document.getElementById("receiptSearchOperator").value.trim();
 
-  const params = {};
-  if (fixture) params.fixture_code = fixture;
-  if (vendor) params.vendor = vendor;
-  if (order) params.order_no = order;
+  const params = {
+    page: receiptsPage,
+    pageSize: receiptsPageSize
+  };
+  if (fixture) params.fixtureId = fixture;
+  if (order) params.orderNo = order;
   if (op) params.operator = op;
 
   const data = await apiListReceipts(params);
 
+  renderReceiptsTable(data.receipts);
+  renderReceiptsPagination(data.total);
+}
+
+/* ============================================================
+ * 收料：表格渲染
+ * ============================================================ */
+
+function renderReceiptsTable(rows) {
   const tbody = document.getElementById("receiptTable");
   tbody.innerHTML = "";
 
-  data.forEach(row => {
-    const serialDisplay = row.type === "batch"
-      ? `${row.serial_start} ~ ${row.serial_end}`
-      : row.serials;
+  if (!rows || rows.length === 0) {
+    tbody.innerHTML = `
+      <tr><td colspan="7" class="text-center py-3 text-gray-400">沒有資料</td></tr>
+    `;
+    return;
+  }
+
+  rows.forEach(row => {
+    const serialDisplay =
+      row.type === "batch"
+        ? `${row.serial_start} ~ ${row.serial_end}`
+        : row.serials;
 
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td class="py-2 pr-4">${row.created_at || ""}</td>
-      <td class="py-2 pr-4">${row.fixture_code || ""}</td>
-      <td class="py-2 pr-4">${row.vendor || ""}</td>
+      <td class="py-2 pr-4">${row.fixture_id || ""}</td>
       <td class="py-2 pr-4">${row.order_no || ""}</td>
       <td class="py-2 pr-4">${serialDisplay || ""}</td>
       <td class="py-2 pr-4">${row.operator || ""}</td>
@@ -132,13 +163,36 @@ async function loadReceipts() {
 }
 
 /* ============================================================
- * 🔵 收料：送出新增（含批量 / 個別）
+ * 收料：分頁渲染
+ * ============================================================ */
+
+function renderReceiptsPagination(total) {
+  const totalPages = Math.ceil(total / receiptsPageSize);
+  const box = document.getElementById("receiptPagination");
+  box.innerHTML = "";
+
+  if (totalPages <= 1) return;
+
+  for (let i = 1; i <= totalPages; i++) {
+    box.innerHTML += `
+      <button class="btn btn-sm ${i === receiptsPage ? "btn-primary" : "btn-outline"}"
+              onclick="changeReceiptPage(${i})">${i}</button>
+    `;
+  }
+}
+
+function changeReceiptPage(p) {
+  receiptsPage = p;
+  loadReceipts();
+}
+
+/* ============================================================
+ * 收料：新增 submit (v3.0)
  * ============================================================ */
 
 async function submitReceipt() {
-  const vendor = document.getElementById("receiptAddVendor").value.trim();
-  const order = document.getElementById("receiptAddOrder").value.trim();
   const fixture = document.getElementById("receiptAddFixture").value.trim();
+  const order = document.getElementById("receiptAddOrder").value.trim();
   const type = document.getElementById("receiptAddType").value;
 
   const serialStart = document.getElementById("receiptAddStart").value.trim();
@@ -150,25 +204,20 @@ async function submitReceipt() {
 
   const payload = {
     type: type,
-    vendor: vendor || null,
+    fixture_id: fixture,
     order_no: order || null,
-    fixture_code: fixture,
-    operator: null,
-    note: note || null
+    note: note || null,
+    operator: null
   };
 
-  // 批量模式
   if (type === "batch") {
-    if (!serialStart || !serialEnd) {
-      return toast("批量模式需要序號起始與結束");
-    }
+    if (!serialStart || !serialEnd) return toast("批量模式需填序號起訖");
     payload.serial_start = serialStart;
     payload.serial_end = serialEnd;
   }
 
-  // 個別模式
   if (type === "individual") {
-    if (!serials) return toast("請輸入序號列表（逗號分隔）");
+    if (!serials) return toast("請輸入序號列表");
     payload.serials = serials;
   }
 
@@ -179,12 +228,12 @@ async function submitReceipt() {
     loadReceipts();
   } catch (err) {
     console.error(err);
-    toast("新增失敗");
+    toast("新增失敗", "error");
   }
 }
 
 /* ============================================================
- * 🔵 收料：刪除
+ * 收料：刪除
  * ============================================================ */
 
 async function deleteReceipt(id) {

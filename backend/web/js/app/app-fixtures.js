@@ -1,0 +1,275 @@
+/**
+ * 治具管理前端控制 (v3.0)
+ * app-fixtures.js
+ *
+ * ✔ 分頁、搜尋、篩選（owner / status）
+ * ✔ 顯示所有治具數量欄位（v3.0）
+ * ✔ 新增 / 編輯 / 刪除 modal
+ * ✔ 自動載入 owner 下拉清單
+ * ✔ Token 自動帶 customer_id
+ * ✔ 與 api-fixtures.js 完全整合
+ */
+
+// ==============================
+// UI DOM
+// ==============================
+
+const fxTableBody = document.querySelector("#fixtureTableBody");
+const fxPagination = document.querySelector("#fixturePagination");
+
+// Modal 元件
+const fxModal = document.querySelector("#fixtureModal");
+const fxModalTitle = document.querySelector("#fxModalTitle");
+const fxForm = document.querySelector("#fixtureForm");
+
+// 下拉 & 搜尋
+const fxSearchInput = document.querySelector("#fxSearch");
+const fxOwnerSelect = document.querySelector("#fxOwnerSelect");
+const fxStatusSelect = document.querySelector("#fxStatusSelect");
+
+// 新增按鈕
+const btnAddFixture = document.querySelector("#btnAddFixture");
+
+
+// ==============================
+// 分頁狀態
+// ==============================
+
+let fxPage = 1;
+let fxPageSize = 10;
+
+
+// ==============================
+// 初始化
+// ==============================
+
+async function initFixturesPage() {
+  await loadOwnersDropDown();
+  await loadFixtureList();
+  setupFixtureUIEvents();
+}
+
+document.addEventListener("DOMContentLoaded", initFixturesPage);
+
+
+// ==============================
+// 載入 owner 下拉清單
+// ==============================
+
+async function loadOwnersDropDown() {
+  try {
+    const owners = await apiGetOwnersSimple(); // 需後端 /owners/active API
+
+    fxOwnerSelect.innerHTML = `<option value="">全部負責人</option>`;
+
+    owners.forEach(o => {
+      fxOwnerSelect.innerHTML += `
+        <option value="${o.id}">${o.primary_owner}</option>
+      `;
+    });
+
+  } catch (err) {
+    console.error("載入 owners 失敗：", err);
+  }
+}
+
+
+// ==============================
+// 載入治具列表
+// ==============================
+
+async function loadFixtureList() {
+  const search = fxSearchInput.value.trim();
+  const ownerId = fxOwnerSelect.value;
+  const statusFilter = fxStatusSelect.value;
+
+  const result = await apiListFixtures({
+    page: fxPage,
+    pageSize: fxPageSize,
+    search,
+    ownerId,
+    statusFilter
+  });
+
+  renderFixtureTable(result.fixtures);
+  renderFixturePagination(result.total);
+}
+
+
+// ==============================
+// 表格渲染
+// ==============================
+
+function renderFixtureTable(rows) {
+  fxTableBody.innerHTML = "";
+
+  if (!rows || rows.length === 0) {
+    fxTableBody.innerHTML = `
+      <tr><td colspan="10" class="text-center py-6 text-gray-400">沒有資料</td></tr>
+    `;
+    return;
+  }
+
+  rows.forEach(f => {
+    fxTableBody.innerHTML += `
+      <tr class="hover:bg-gray-50">
+        <td class="px-2 py-1">${f.id}</td>
+        <td class="px-2 py-1">${f.fixture_name}</td>
+        <td class="px-2 py-1">${f.owner_name ?? "-"}</td>
+        <td class="px-2 py-1 text-right">${f.self_purchased_qty}</td>
+        <td class="px-2 py-1 text-right">${f.customer_supplied_qty}</td>
+        <td class="px-2 py-1 text-right">${f.available_qty}</td>
+        <td class="px-2 py-1 text-right">${f.deployed_qty}</td>
+        <td class="px-2 py-1 text-right">${f.maintenance_qty}</td>
+        <td class="px-2 py-1">${f.status}</td>
+        <td class="px-2 py-1 text-right">
+          <button class="btn btn-xs btn-outline" onclick="openFixtureEdit('${f.id}')">編輯</button>
+          <button class="btn btn-xs btn-error" onclick="deleteFixture('${f.id}')">刪除</button>
+        </td>
+      </tr>
+    `;
+  });
+}
+
+
+// ==============================
+// 分頁渲染
+// ==============================
+
+function renderFixturePagination(total) {
+  const totalPages = Math.ceil(total / fxPageSize);
+  fxPagination.innerHTML = "";
+
+  if (totalPages <= 1) return;
+
+  for (let i = 1; i <= totalPages; i++) {
+    fxPagination.innerHTML += `
+      <button 
+        class="btn btn-sm ${i === fxPage ? "btn-primary" : "btn-outline"}"
+        onclick="changeFixturePage(${i})">
+        ${i}
+      </button>
+    `;
+  }
+}
+
+function changeFixturePage(p) {
+  fxPage = p;
+  loadFixtureList();
+}
+
+
+// ==============================
+// 新增治具
+// ==============================
+
+btnAddFixture.addEventListener("click", () => {
+  fxModalTitle.textContent = "新增治具";
+  fxForm.reset();
+  fxForm.dataset.mode = "create";
+  fxModal.showModal();
+});
+
+
+// ==============================
+// 編輯治具
+// ==============================
+
+async function openFixtureEdit(fixtureId) {
+  fxModalTitle.textContent = "編輯治具";
+  fxForm.dataset.mode = "edit";
+  fxForm.dataset.id = fixtureId;
+
+  const data = await apiGetFixture(fixtureId);
+
+  // 填入資料（符合 fixture schema）
+  fxForm.fixture_id.value = data.id;
+  fxForm.fixture_name.value = data.fixture_name;
+  fxForm.owner_id.value = data.owner_id || "";
+  fxForm.self_purchased_qty.value = data.self_purchased_qty;
+  fxForm.customer_supplied_qty.value = data.customer_supplied_qty;
+  fxForm.replacement_cycle.value = data.replacement_cycle;
+  fxForm.cycle_unit.value = data.cycle_unit;
+  fxForm.note.value = data.note ?? "";
+
+  fxModal.showModal();
+}
+
+
+// ==============================
+// 表單送出
+// ==============================
+
+fxForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+
+  const formData = {
+    fixture_id: fxForm.fixture_id.value.trim(),
+    fixture_name: fxForm.fixture_name.value.trim(),
+    owner_id: fxForm.owner_id.value || null,
+    self_purchased_qty: Number(fxForm.self_purchased_qty.value) || 0,
+    customer_supplied_qty: Number(fxForm.customer_supplied_qty.value) || 0,
+    replacement_cycle: Number(fxForm.replacement_cycle.value) || 0,
+    cycle_unit: fxForm.cycle_unit.value,
+    note: fxForm.note.value.trim(),
+  };
+
+  try {
+    if (fxForm.dataset.mode === "create") {
+      await apiCreateFixture(formData);
+      toast("新增成功");
+    } else {
+      const id = fxForm.dataset.id;
+      await apiUpdateFixture(id, formData);
+      toast("更新成功");
+    }
+
+    fxModal.close();
+    await loadFixtureList();
+
+  } catch (err) {
+    console.error(err);
+    toast("操作失敗", "error");
+  }
+});
+
+
+// ==============================
+// 刪除治具
+// ==============================
+
+async function deleteFixture(fixtureId) {
+  if (!confirm(`確定要刪除治具「${fixtureId}」嗎？`)) return;
+
+  try {
+    await apiDeleteFixture(fixtureId);
+    toast("刪除成功");
+    loadFixtureList();
+  } catch (err) {
+    console.error(err);
+    toast("刪除失敗", "error");
+  }
+}
+
+
+// ==============================
+// 綁定 UI 控制事件
+// ==============================
+
+function setupFixtureUIEvents() {
+  fxSearchInput.addEventListener("input", debounce(loadFixtureList, 300));
+  fxOwnerSelect.addEventListener("change", loadFixtureList);
+  fxStatusSelect.addEventListener("change", loadFixtureList);
+}
+
+
+/**
+ * 小工具：防抖
+ */
+function debounce(fn, delay = 250) {
+  let timer = null;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), delay);
+  };
+}

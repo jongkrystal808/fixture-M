@@ -1,179 +1,112 @@
 /**
- * 收料相關 API
+ * 收料 Receipts API (v3.0)
  * api-receipts.js
  *
- * 對應後端路由：
- *   GET    /api/v2/receipts
- *   POST   /api/v2/receipts
- *   DELETE /api/v2/receipts/{id}
- *
- * 資料庫欄位 (receipts)：
- *   id, type('batch'|'individual'), vendor, order_no,
- *   fixture_code, serial_start, serial_end, serials,
- *   operator, note, created_at
+ * ✔ 支援 batch / individual
+ * ✔ 自動序號展開由後端處理
+ * ✔ 不用傳 customer_id（後端從 Token 判斷）
+ * ✔ 支援搜尋 / 分頁
+ * ✔ 匯入功能 (Excel → JSON → API)
  */
 
-/* ---------------------------------------------------------
- * 基本 CRUD
- * --------------------------------------------------------- */
+// ================================
+// 工具：搜尋 & 分頁
+// ================================
 
 /**
- * 查詢收料記錄列表
- * @param {object} params 查詢條件
- *  例如：
- *    { fixture_code: 'L-0001', vendor: 'XXX', order_no: 'PO123' }
+ * 查詢收料列表
+ * @param {Object} options
+ * @param {number} [options.page=1]
+ * @param {number} [options.pageSize=20]
+ * @param {string} [options.fixtureId]
+ * @param {string} [options.orderNo]
+ * @param {string} [options.operator]
+ * @returns {Promise<{total:number, receipts:Array}>}
  */
-async function apiListReceipts(params = {}) {
-  const query = new URLSearchParams(params).toString();
-  const path = query ? `/receipts?${query}` : '/receipts';
-  return api(path);
+async function apiListReceipts(options = {}) {
+  const {
+    page = 1,
+    pageSize = 20,
+    fixtureId = "",
+    orderNo = "",
+    operator = ""
+  } = options;
+
+  const params = new URLSearchParams();
+  params.set("skip", String((page - 1) * pageSize));
+  params.set("limit", String(pageSize));
+
+  if (fixtureId) params.set("fixture_id", fixtureId);
+  if (orderNo) params.set("order_no", orderNo);
+  if (operator) params.set("operator", operator);
+
+  return api("/receipts?" + params.toString());
 }
 
+// ================================
+// 查詢單筆收料
+// ================================
+
+async function apiGetReceipt(receiptId) {
+  return api(`/receipts/${encodeURIComponent(receiptId)}`);
+}
+
+// ================================
+// 新增收料（自動依 type 分流）
+// ================================
+
 /**
- * 新增一筆收料記錄
- * @param {object} data
- *  {
- *    type: 'batch' | 'individual',
- *    vendor: string,
- *    order_no: string,
- *    fixture_code: string,
- *    serial_start?: string,   // type = 'batch' 時使用
- *    serial_end?: string,     // type = 'batch' 時使用
- *    serials?: string,        // type = 'individual' 時使用，逗號分隔
- *    operator?: string,
- *    note?: string
- *  }
+ * 新增收料
+ * @param {Object} data - ReceiptCreate 格式
+ * {
+ *   type: "batch" | "individual",
+ *   fixture_id: "L-00018",
+ *   order_no: "",
+ *   serial_start: "",
+ *   serial_end: "",
+ *   serials: "",
+ *   operator: "",
+ *   note: ""
+ * }
  */
 async function apiCreateReceipt(data) {
-  return api('/receipts', {
-    method: 'POST',
-    body: JSON.stringify({
-      type: data.type || 'batch',
-      vendor: data.vendor || null,
-      order_no: data.order_no || null,
-      fixture_code: data.fixture_code || null,
-      serial_start: data.type === 'batch' ? (data.serial_start || null) : null,
-      serial_end: data.type === 'batch' ? (data.serial_end || null) : null,
-      serials: data.type === 'individual' ? (data.serials || null) : null,
-      operator: data.operator || null,
-      note: data.note || null
-    })
+  return api("/receipts", {
+    method: "POST",
+    body: JSON.stringify(data)
   });
 }
 
+// ================================
+// 匯入收料（Excel → JSON）
+// ================================
+
 /**
- * 刪除收料記錄
- * @param {number} id 收料記錄 ID
+ * 批量匯入收料
+ * @param {Array<Object>} items - ReceiptCreate[] 格式
  */
+async function apiImportReceipts(items) {
+  return api("/receipts/import", {
+    method: "POST",
+    body: JSON.stringify(items)
+  });
+}
+
+// ================================
+// 刪除收料紀錄
+// ================================
+
 async function apiDeleteReceipt(id) {
-  return api(`/receipts/${id}`, {
-    method: 'DELETE'
+  return api(`/receipts/${encodeURIComponent(id)}`, {
+    method: "DELETE"
   });
 }
 
-/* ---------------------------------------------------------
- * Excel 匯入：解析 .xlsx → JSON → 後端
- * --------------------------------------------------------- */
-
-/**
- * 匯入收料 Excel
- *
- * Excel 欄位建議格式：
- *   type | vendor | order_no | fixture_code |
- *   serial_start | serial_end | serials | operator | note
- *
- * 說明：
- *   - type = 'batch' → 使用 serial_start + serial_end
- *   - type = 'individual' → 使用 serials (逗號分隔)
- */
-async function apiImportReceiptsXlsx(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-
-    reader.onload = async (e) => {
-      try {
-        const workbook = XLSX.read(e.target.result, { type: 'binary' });
-        const sheet = workbook.Sheets[workbook.SheetNames[0]];
-
-        // 轉換為 JSON，每列對應一筆資料，第一列是欄名
-        const rawRows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
-
-        // 轉換成後端預期結構
-        const rows = rawRows.map((r) => {
-          const type = (r.type || 'batch').toLowerCase();
-          return {
-            type: type === 'individual' ? 'individual' : 'batch',
-            vendor: (r.vendor || '').trim() || null,
-            order_no: (r.order_no || '').trim() || null,
-            fixture_code: (r.fixture_code || '').trim() || null,
-            serial_start: type === 'batch' ? ((r.serial_start || '').trim() || null) : null,
-            serial_end: type === 'batch' ? ((r.serial_end || '').trim() || null) : null,
-            serials: type === 'individual' ? ((r.serials || '').trim() || null) : null,
-            operator: (r.operator || '').trim() || null,
-            note: (r.note || '').trim() || null
-          };
-        });
-
-        // 這裡有兩種設計方式：
-        // 1) 後端提供 /receipts/import 批次 API
-        // 2) 前端逐筆呼叫 apiCreateReceipt（簡單但較多請求）
-        //
-        // 目前我們先採用「逐筆呼叫」，若你之後新增 /receipts/import 再改也很容易。
-
-        let successCount = 0;
-        const skippedRows = [];
-
-        for (let i = 0; i < rows.length; i++) {
-          const row = rows[i];
-          const excelRowNo = i + 2; // Excel 實際列號（第 1 列是表頭）
-
-          // 基本欄位檢查
-          if (!row.fixture_code) {
-            skippedRows.push({
-              row: excelRowNo,
-              error: 'fixture_code 必填'
-            });
-            continue;
-          }
-
-          try {
-            await apiCreateReceipt(row);
-            successCount++;
-          } catch (err) {
-            skippedRows.push({
-              row: excelRowNo,
-              error: String(err)
-            });
-          }
-        }
-
-        const failCount = skippedRows.length;
-        const message = failCount === 0
-          ? '收料匯入完成，全部成功'
-          : '收料匯入完成，有部分資料被略過';
-
-        resolve({
-          message,
-          success_count: successCount,
-          fail_count: failCount,
-          skipped_rows: skippedRows
-        });
-      } catch (err) {
-        reject(err);
-      }
-    };
-
-    reader.onerror = (err) => reject(err);
-
-    reader.readAsBinaryString(file);
-  });
-}
-
-/* ---------------------------------------------------------
- * 導出到全域（給 app-receipts.js 使用）
- * --------------------------------------------------------- */
+// ================================
+// 匯出 functions
+// ================================
 
 window.apiListReceipts = apiListReceipts;
+window.apiGetReceipt = apiGetReceipt;
 window.apiCreateReceipt = apiCreateReceipt;
+window.apiImportReceipts = apiImportReceipts;
 window.apiDeleteReceipt = apiDeleteReceipt;
-window.apiImportReceiptsXlsx = apiImportReceiptsXlsx;

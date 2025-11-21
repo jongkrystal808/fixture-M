@@ -8,7 +8,7 @@ from backend.app.dependencies import get_current_admin
 from backend.app.auth import hash_password
 from typing import List
 
-from backend.app.models.user import (
+from backend.app.models.users import (
     UserCreate,
     UserUpdate,
     UserResponse,

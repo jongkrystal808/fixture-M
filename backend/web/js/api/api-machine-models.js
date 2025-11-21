@@ -1,15 +1,15 @@
-``/**
- * 機種 / 站點 / 機種-站點 / 治具需求 API
+/**
+ * 機種 / 站點 / 機種站點綁定 / 治具需求 API (v3.0)
  * api-machine-models.js
  *
- * 依後端 Router:
+ * 後端 Router:
  * - /models
  * - /stations
  * - /model-stations
- * - /fixture-req
+ * - /fixture-requirements
  */
 
-// ===================== 機種 (machine_models) =====================
+// ===================== 機種 machine_models =====================
 
 async function apiListModels(q = '') {
   const params = new URLSearchParams();
@@ -41,7 +41,7 @@ async function apiDeleteModel(modelId) {
   });
 }
 
-// ===================== 站點 (stations) =====================
+// ===================== 站點 stations =====================
 
 async function apiListStations(q = '') {
   const params = new URLSearchParams();
@@ -50,7 +50,7 @@ async function apiListStations(q = '') {
 }
 
 async function apiGetStation(stationId) {
-  return api(`/stations/${stationId}`);
+  return api(`/stations/${encodeURIComponent(stationId)}`);
 }
 
 async function apiCreateStation(payload) {
@@ -61,14 +61,14 @@ async function apiCreateStation(payload) {
 }
 
 async function apiUpdateStation(stationId, payload) {
-  return api(`/stations/${stationId}`, {
+  return api(`/stations/${encodeURIComponent(stationId)}`, {
     method: 'PUT',
     body: JSON.stringify(payload)
   });
 }
 
 async function apiDeleteStation(stationId) {
-  return api(`/stations/${stationId}`, {
+  return api(`/stations/${encodeURIComponent(stationId)}`, {
     method: 'DELETE'
   });
 }
@@ -91,38 +91,40 @@ async function apiBindStationToModel(modelId, stationId) {
 }
 
 async function apiUnbindStationFromModel(modelId, stationId) {
-  return api(`/model-stations/${encodeURIComponent(modelId)}/${stationId}`, {
+  return api(`/model-stations/${encodeURIComponent(modelId)}/${encodeURIComponent(stationId)}`, {
     method: 'DELETE'
   });
 }
 
-// ===================== 治具需求 (fixture_requirements) =====================
+// ===================== 治具需求 fixture_requirements =====================
+// 後端路由 prefix: /fixture-requirements
 
 async function apiListFixtureRequirements(modelId, stationId) {
-  return api(`/fixture-req/${encodeURIComponent(modelId)}/${stationId}`);
+  return api(`/fixture-requirements/${encodeURIComponent(modelId)}/${encodeURIComponent(stationId)}`);
 }
 
 async function apiCreateFixtureRequirement(modelId, stationId, payload) {
-  return api(`/fixture-req/${encodeURIComponent(modelId)}/${stationId}`, {
+  return api(`/fixture-requirements/${encodeURIComponent(modelId)}/${encodeURIComponent(stationId)}`, {
     method: 'POST',
     body: JSON.stringify(payload)
   });
 }
 
 async function apiUpdateFixtureRequirement(reqId, payload) {
-  return api(`/fixture-req/item/${reqId}`, {
+  return api(`/fixture-requirements/item/${reqId}`, {
     method: 'PUT',
     body: JSON.stringify(payload)
   });
 }
 
 async function apiDeleteFixtureRequirement(reqId) {
-  return api(`/fixture-req/item/${reqId}`, {
+  return api(`/fixture-requirements/item/${reqId}`, {
     method: 'DELETE'
   });
 }
 
-// 暴露到 window（方便在 app-main.js 使用）
+// ===================== 暴露到 window =====================
+
 window.apiListModels = apiListModels;
 window.apiGetModel = apiGetModel;
 window.apiCreateModel = apiCreateModel;
@@ -130,6 +132,7 @@ window.apiUpdateModel = apiUpdateModel;
 window.apiDeleteModel = apiDeleteModel;
 
 window.apiListStations = apiListStations;
+window.apiGetStation = apiGetStation;
 window.apiCreateStation = apiCreateStation;
 window.apiUpdateStation = apiUpdateStation;
 window.apiDeleteStation = apiDeleteStation;

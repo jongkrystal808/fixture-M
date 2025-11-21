@@ -1,13 +1,13 @@
 /**
+ * 退料登記前端控制邏輯 (v3.0)
  * app-returns.js
- * 退料登記前端控制邏輯
  *
- * 功能：
- *   - 子分頁切換（由 app-receipts.js 控制，不需重複）
- *   - 載入退料記錄
- *   - 新增（批量 / 少量）
- *   - 匯入 Excel(.xlsx)
- *   - 刪除退料記錄
+ * ✔ 使用 fixture_id（取代 fixture_code）
+ * ✔ 移除 vendor 欄位（v3.0 已刪除）
+ * ✔ 分頁 / 搜尋
+ * ✔ 匯入 Excel (.xlsx → JSON → API)
+ * ✔ 完整支援 batch / individual
+ * ✔ 與 api-returns.js v3.0 完整對應
  */
 
 /* ============================================================
@@ -32,22 +32,29 @@ function toggleReturnAdd(show) {
 }
 
 /* ============================================================
- * 🔵 下載 Excel 範本
+ * 🔵 下載 Excel 範本 (v3.0)
  * ============================================================ */
 
 function downloadReturnTemplate() {
-  const headers = [
-    ["type", "vendor", "order_no", "fixture_code",
-     "serial_start", "serial_end", "serials", "operator", "note"]
-  ];
+  const headers = [[
+    "type",
+    "fixture_id",
+    "order_no",
+    "serial_start",
+    "serial_end",
+    "serials",
+    "operator",
+    "note"
+  ]];
+
   const ws = XLSX.utils.aoa_to_sheet(headers);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "return_template");
-  XLSX.writeFile(wb, "return_template.xlsx");
+  XLSX.writeFile(wb, "return_template_v3.xlsx");
 }
 
 /* ============================================================
- * 🔵 匯入退料 Excel
+ * 🔵 匯入退料 Excel (.xlsx)
  * ============================================================ */
 
 async function handleReturnImport(input) {
@@ -63,11 +70,18 @@ async function handleReturnImport(input) {
     loadReturns();
   } catch (err) {
     console.error(err);
-    toast("匯入失敗");
+    toast("匯入失敗", "error");
   }
 
   input.value = "";
 }
+
+/* ============================================================
+ * 🔵 分頁狀態
+ * ============================================================ */
+
+let returnsPage = 1;
+let returnsPageSize = 20;
 
 /* ============================================================
  * 🔵 載入退料記錄
@@ -75,31 +89,49 @@ async function handleReturnImport(input) {
 
 async function loadReturns() {
   const fixture = document.getElementById("returnSearchFixture").value.trim();
-  const vendor = document.getElementById("returnSearchVendor").value.trim();
   const order = document.getElementById("returnSearchOrder").value.trim();
   const op = document.getElementById("returnSearchOperator").value.trim();
 
-  const params = {};
-  if (fixture) params.fixture_code = fixture;
-  if (vendor) params.vendor = vendor;
-  if (order) params.order_no = order;
+  const params = {
+    page: returnsPage,
+    pageSize: returnsPageSize
+  };
+
+  if (fixture) params.fixtureId = fixture;
+  if (order) params.orderNo = order;
   if (op) params.operator = op;
 
   const data = await apiListReturns(params);
 
+  renderReturnsTable(data.returns);
+  renderReturnsPagination(data.total);
+}
+
+/* ============================================================
+ * 🔵 表格渲染
+ * ============================================================ */
+
+function renderReturnsTable(rows) {
   const tbody = document.getElementById("returnTable");
   tbody.innerHTML = "";
 
-  data.forEach(row => {
-    const serialDisplay = row.type === "batch"
-      ? `${row.serial_start} ~ ${row.serial_end}`
-      : row.serials;
+  if (!rows || rows.length === 0) {
+    tbody.innerHTML = `
+      <tr><td colspan="7" class="text-center py-3 text-gray-400">沒有資料</td></tr>
+    `;
+    return;
+  }
+
+  rows.forEach(row => {
+    const serialDisplay =
+      row.type === "batch"
+        ? `${row.serial_start} ~ ${row.serial_end}`
+        : row.serials;
 
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td class="py-2 pr-4">${row.created_at || ""}</td>
-      <td class="py-2 pr-4">${row.fixture_code || ""}</td>
-      <td class="py-2 pr-4">${row.vendor || ""}</td>
+      <td class="py-2 pr-4">${row.fixture_id || ""}</td>
       <td class="py-2 pr-4">${row.order_no || ""}</td>
       <td class="py-2 pr-4">${serialDisplay || ""}</td>
       <td class="py-2 pr-4">${row.operator || ""}</td>
@@ -114,13 +146,36 @@ async function loadReturns() {
 }
 
 /* ============================================================
+ * 🔵 分頁渲染
+ * ============================================================ */
+
+function renderReturnsPagination(total) {
+  const totalPages = Math.ceil(total / returnsPageSize);
+  const box = document.getElementById("returnPagination");
+  box.innerHTML = "";
+
+  if (totalPages <= 1) return;
+
+  for (let i = 1; i <= totalPages; i++) {
+    box.innerHTML = `
+      <button class="btn btn-sm ${i === returnsPage ? "btn-primary" : "btn-outline"}"
+              onclick="changeReturnPage(${i})">${i}</button>
+    `;
+  }
+}
+
+function changeReturnPage(p) {
+  returnsPage = p;
+  loadReturns();
+}
+
+/* ============================================================
  * 🔵 新增退料（批量 / 個別）
  * ============================================================ */
 
 async function submitReturn() {
-  const vendor = document.getElementById("returnAddVendor").value.trim();
-  const order = document.getElementById("returnAddOrder").value.trim();
   const fixture = document.getElementById("returnAddFixture").value.trim();
+  const order = document.getElementById("returnAddOrder").value.trim();
   const type = document.getElementById("returnAddType").value;
 
   const serialStart = document.getElementById("returnAddStart").value.trim();
@@ -131,24 +186,21 @@ async function submitReturn() {
   if (!fixture) return toast("治具編號不得為空");
 
   const payload = {
-    type,
-    vendor: vendor || null,
+    type: type,
+    fixture_id: fixture,
     order_no: order || null,
-    fixture_code: fixture,
-    operator: null,
-    note: note || null
+    note: note || null,
+    operator: null
   };
 
   if (type === "batch") {
-    if (!serialStart || !serialEnd) {
-      return toast("批量模式需要序號起始與結束");
-    }
+    if (!serialStart || !serialEnd) return toast("批量模式需要序號起訖");
     payload.serial_start = serialStart;
     payload.serial_end = serialEnd;
   }
 
   if (type === "individual") {
-    if (!serials) return toast("請輸入序號列表（逗號分隔）");
+    if (!serials) return toast("請輸入序號列表");
     payload.serials = serials;
   }
 
@@ -159,7 +211,7 @@ async function submitReturn() {
     loadReturns();
   } catch (err) {
     console.error(err);
-    toast("新增失敗");
+    toast("新增失敗", "error");
   }
 }
 
@@ -175,6 +227,6 @@ async function deleteReturn(id) {
     toast("刪除成功");
     loadReturns();
   } catch (err) {
-    toast("刪除失敗");
+    toast("刪除失敗", "error");
   }
 }

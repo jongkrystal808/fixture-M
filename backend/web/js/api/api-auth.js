@@ -1,11 +1,15 @@
 /**
- * 認證相關 API
+ * 認證 API (v3.0)
  * api-auth.js
  *
- * 包含：
- *  - 登入 /auth/login
- *  - 取得使用者資訊 /auth/me
+ * ✔ /auth/login
+ * ✔ /auth/me
+ * ✔ 自動處理 token 存取
  */
+
+/* ============================================================
+ * 登入
+ * ============================================================ */
 
 /**
  * 呼叫後端登入 API
@@ -13,23 +17,30 @@
  * @param {string} password
  */
 async function apiLogin(username, password) {
-  return await apiJson('/auth/login', {
+  const result = await api('/auth/login', {
     method: 'POST',
-    body: JSON.stringify({
-      username,
-      password
-    })
+    body: JSON.stringify({ username, password })
   });
+
+  // 自動儲存 Token
+  if (result && result.access_token) {
+    localStorage.setItem('auth_token', result.access_token);
+  }
+
+  return result;
 }
 
-/**
- * 取得目前登入的使用者（透過 JWT Token）
- * GET /auth/me
- */
+/* ============================================================
+ * 取得目前登入使用者
+ * ============================================================ */
+
 async function apiGetMe() {
-  return await api('/auth/me');
+  return api('/auth/me');
 }
 
-// 匯出全域
+/* ============================================================
+ * 匯出到全域
+ * ============================================================ */
+
 window.apiLogin = apiLogin;
 window.apiGetMe = apiGetMe;

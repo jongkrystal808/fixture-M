@@ -1,5 +1,6 @@
 from pydantic import BaseModel
 from typing import Optional
+from datetime import datetime
 
 
 class CustomerBase(BaseModel):
@@ -14,16 +15,10 @@ class CustomerBase(BaseModel):
 
 
 class CustomerCreate(CustomerBase):
-    """
-    新增客戶時使用
-    """
     pass
 
 
 class CustomerUpdate(BaseModel):
-    """
-    更新客戶時使用（部分欄位可空）
-    """
     customer_abbr: Optional[str] = None
     contact_person: Optional[str] = None
     contact_phone: Optional[str] = None
@@ -34,8 +29,5 @@ class CustomerUpdate(BaseModel):
 
 
 class CustomerResponse(CustomerBase):
-    """
-    回傳客戶資料（包含時間戳）
-    """
-    created_at: str
-    updated_at: str
+    created_at: datetime
+    updated_at: datetime

@@ -1,109 +1,195 @@
-/**
- * 主應用程式控制 (v3.0)
- * app-main.js
- *
- * ✔ 全站 Tab 切換
- * ✔ Admin 子分頁切換
- * ✔ 時鐘
- * ✔ 初始載入（含登入檢查，需搭配 app-auth.js）
- * ✔ 不再處理任何資料載入（依方案 A）
- */
+// /web/js/app/app-main.js
+// 簡易 hash router + 頁籤切換
 
-// ============================================================
-// 時鐘
-// ============================================================
 
-function startClock() {
-  function updateClock() {
-    const d = new Date();
-    const pad = n => String(n).padStart(2, '0');
-    const timeStr = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
-    const el = document.getElementById("clock");
-    if (el) el.textContent = timeStr;
+(function () {
+  const TAB_CONFIG = {
+    dashboard: {
+      sectionId: "tab-dashboard",
+      title: "儀表板"
+    },
+    receipts: {
+      sectionId: "tab-receipts",
+      title: "收料 / 退料登記"
+    },
+    query: {
+      sectionId: "tab-query",
+      title: "治具 / 機種查詢"
+    },
+    logs: {
+      sectionId: "tab-logs",
+      title: "使用 / 更換記錄"
+    },
+    stats: {
+      sectionId: "tab-stats",
+      title: "治具情況統計"
+    },
+    admin: {
+      sectionId: "tab-admin",
+      title: "後台管理"
+    }
+  };
+
+  const tabButtons = Array.from(document.querySelectorAll("[data-tab]"));
+  const sections = {};
+  Object.keys(TAB_CONFIG).forEach(key => {
+    sections[key] = document.getElementById(TAB_CONFIG[key].sectionId);
+  });
+
+  const bannerTitle = document.getElementById("activeTabTitle");
+  let currentTab = null;
+  const loadedFlags = {}; // 每個頁面只載一次資料
+
+  function normalizeHash(hash) {
+    if (!hash) return "dashboard";
+    return hash.replace(/^#/, "");
   }
-  updateClock();
-  setInterval(updateClock, 1000);
-}
 
-// ============================================================
-// Tab 切換（主頁）
-// ============================================================
+  function setHash(hash) {
+    if (location.hash.replace(/^#/, "") !== hash) {
+      history.replaceState(null, "", "#" + hash);
+    }
+  }
 
-function initTabs() {
-  const tabs = document.querySelectorAll('button[data-tab]');
-  const sections = document.querySelectorAll('[id^="tab-"]');
+  function showTab(tabKey, options = { updateHash: true }) {
+    if (!TAB_CONFIG[tabKey]) tabKey = "dashboard";
+    if (currentTab === tabKey) return;
 
-  tabs.forEach(tab => {
-    tab.addEventListener('click', () => {
-      const target = tab.dataset.tab;
+    currentTab = tabKey;
 
-      // 按鈕樣式
-      tabs.forEach(t => t.classList.remove('tab-active'));
-      tab.classList.add('tab-active');
+    // 1) 切換 main section 顯示/隱藏
+    Object.keys(TAB_CONFIG).forEach(key => {
+      const sec = sections[key];
+      if (!sec) return;
+      if (key === tabKey) {
+        sec.classList.remove("hidden");
+      } else {
+        sec.classList.add("hidden");
+      }
+    });
 
-      // 顯示對應分頁
-      sections.forEach(s => {
-        s.style.display = (s.id === `tab-${target}`) ? 'block' : 'none';
-      });
+    // 2) 切換上方 tab 樣式
+    tabButtons.forEach(btn => {
+      const key = btn.dataset.tab;
+      if (key === tabKey) {
+        btn.classList.add("tab-active");
+      } else {
+        btn.classList.remove("tab-active");
+      }
+    });
 
-      // 更新標題
-      const title = document.getElementById("activeTabTitle");
-      if (title) title.textContent = tab.textContent;
+    // 3) 更新標題
+    if (bannerTitle) {
+      bannerTitle.textContent = TAB_CONFIG[tabKey].title;
+    }
 
-      // 📌 分頁切換時，不再做任何 loadXXX()
-      //    各 app-xxx.js 自己在 DOMContentLoaded 或事件觸發時載入資料（方案 A）
+    // 4) 更新 hash（如果需要）
+    if (options.updateHash) {
+      setHash(tabKey);
+    }
+
+    // 5) 第一次進入該頁時，自動載入資料（如果有對應函數）
+    if (!loadedFlags[tabKey]) {
+      loadedFlags[tabKey] = true;
+      try {
+        switch (tabKey) {
+          case "dashboard":
+            if (typeof window.loadDashboard === "function") {
+              window.loadDashboard();
+            }
+            break;
+          case "receipts":
+            if (typeof window.loadReceipts === "function") {
+              window.loadReceipts();
+            }
+            break;
+          case "query":
+            if (typeof window.loadFixturesQuery === "function") {
+              window.loadFixturesQuery();
+            }
+            break;
+          case "logs":
+            if (typeof window.loadUsageLogs === "function") {
+              window.loadUsageLogs();
+            }
+            if (typeof window.loadReplacementLogs === "function") {
+              window.loadReplacementLogs();
+            }
+            break;
+          case "stats":
+            if (typeof window.loadStats === "function") {
+              window.loadStats();
+            }
+            break;
+          case "admin":
+            // 這邊通常會有使用者 / 客戶等管理
+            if (typeof window.loadUsers === "function") {
+              window.loadUsers();
+            }
+            if (typeof window.loadCustomers === "function") {
+              window.loadCustomers();
+            }
+            break;
+        }
+      } catch (e) {
+        console.warn("init tab error:", tabKey, e);
+      }
+    }
+  }
+
+  // 監聽上方 tab 按鈕
+  tabButtons.forEach(btn => {
+    btn.addEventListener("click", () => {
+      const tabKey = btn.dataset.tab;
+      const hash = btn.dataset.hash || tabKey;
+      showTab(tabKey, { updateHash: true });
+      setHash(hash);
     });
   });
-}
 
-// ============================================================
-// Admin 子頁切換（data-subtab）
-// ============================================================
-
-function initAdminSubtabs() {
-  document.addEventListener("click", function (e) {
-    const btn = e.target.closest("[data-subtab]");
-    if (!btn) return;
-
-    const subtab = btn.getAttribute("data-subtab");
-
-    // tab active 樣式
-    document.querySelectorAll('#tab-admin [data-subtab]')
-      .forEach(b => b.classList.remove("subtab-active"));
-    btn.classList.add("subtab-active");
-
-    // 顯示子頁
-    document.querySelectorAll('#tab-admin > div[id^="subtab-"]')
-      .forEach(div => div.classList.add("hidden"));
-
-    const target = document.getElementById(`subtab-${subtab}`);
-    if (target) target.classList.remove("hidden");
-
-    // 📌 子頁載入交由 app-*.js 自己負責（方案 A）
+  // hash 改變時（例如手動改網址、瀏覽器返回）
+  window.addEventListener("hashchange", () => {
+    const tabKey = normalizeHash(location.hash);
+    showTab(tabKey, { updateHash: false });
   });
-}
 
-// ============================================================
-// App 初始化
-// ============================================================
+  // 頁面載入初始化
+  window.addEventListener("DOMContentLoaded", async () => {
+    // 先處理登入 & 客戶選擇
+    if (typeof window.loadCurrentUser === "function") {
+      await window.loadCurrentUser();
+    }
 
-async function initApp() {
-  startClock();
-  initTabs();
-  initAdminSubtabs();
+    const initialTab = normalizeHash(location.hash);
+    showTab(initialTab, { updateHash: true });
 
-  // 登入狀態（app-auth.js 提供）
-  if (typeof loadCurrentUser === "function") {
-    await loadCurrentUser();
-  }
+    // 收料 / 退料 子分頁切換（沿用你原本 data-rtab 設計）
+    const rtabButtons = document.querySelectorAll("[data-rtab]");
+    rtabButtons.forEach(btn => {
+      btn.addEventListener("click", () => {
+        rtabButtons.forEach(b => b.classList.remove("subtab-active"));
+        btn.classList.add("subtab-active");
 
-  // 預設顯示 dashboard
-  const defaultTab = document.querySelector('button[data-tab="dashboard"]');
-  if (defaultTab) defaultTab.click();
-}
+        const tab = btn.dataset.rtab;
+        document.querySelectorAll("#rtab-receipts, #rtab-returns")
+          .forEach(sec => sec.classList.add("hidden"));
+        const target = document.getElementById(`rtab-${tab}`);
+        if (target) target.classList.remove("hidden");
+      });
+    });
+    // Query 子分頁切換（fixtures / models）
+    const qtabBtns = document.querySelectorAll("[data-qtab]");
+    qtabBtns.forEach(btn => {
+      btn.addEventListener("click", () => {
+        const tab = btn.dataset.qtab;
 
-// ============================================================
-// DOM Ready
-// ============================================================
+        qtabBtns.forEach(b => b.classList.remove("subtab-active"));
+        btn.classList.add("subtab-active");
 
-document.addEventListener("DOMContentLoaded", initApp);
+        document.getElementById("qtab-fixtures").classList.toggle("hidden", tab !== "fixtures");
+        document.getElementById("qtab-models").classList.toggle("hidden", tab !== "models");
+      });
+    });
+
+  });
+})();

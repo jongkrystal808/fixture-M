@@ -1,33 +1,20 @@
 /**
- * 認證 API (v3.0)
- * api-auth.js
- *
- * ✔ /auth/login
- * ✔ /auth/me
- * ✔ 自動處理 token 存取
+ * 認證 API (優化版)
+ * - 自動略過 customer_id
+ * - 錯誤傳遞更完整
  */
 
 /* ============================================================
  * 登入
  * ============================================================ */
 
-/**
- * 呼叫後端登入 API
- * @param {string} username
- * @param {string} password
- */
 async function apiLogin(username, password) {
-  const result = await api('/auth/login', {
-    method: 'POST',
-    body: JSON.stringify({ username, password })
+  return api("/auth/login", {
+    method: "POST",
+    body: { username, password },  // 讓 api() 自動 stringify
+    skipCustomerId: true,          // 登入不能帶 customer_id
+    skipAuth: true                 // 登入不需要 Bearer token
   });
-
-  // 自動儲存 Token
-  if (result && result.access_token) {
-    localStorage.setItem('auth_token', result.access_token);
-  }
-
-  return result;
 }
 
 /* ============================================================
@@ -35,11 +22,13 @@ async function apiLogin(username, password) {
  * ============================================================ */
 
 async function apiGetMe() {
-  return api('/auth/me');
+  return api("/auth/me", {
+    skipCustomerId: true   // /auth/me 不需要 customer_id
+  });
 }
 
 /* ============================================================
- * 匯出到全域
+ * 導出
  * ============================================================ */
 
 window.apiLogin = apiLogin;

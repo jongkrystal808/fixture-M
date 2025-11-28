@@ -1,89 +1,165 @@
 /**
- * API 配置與基礎請求函數 (v3.0)
- * 修正版：統一 Token、401 自動處理、Content-Type 自動判斷
+ * API 配置與基礎請求函數 (v3.5 最終版)
+ * - 自動 Token / customer_id 注入
+ * - 自動處理 params / body
+ * - 錯誤結構統一
+ * - 智能略過不需要 customer_id 的 API
  */
 
-// ============================================
-// 基礎設定
-// ============================================
+window.API_BASE = window.API_BASE || "";
+const API_PREFIX = "/api/v2";
 
-// 全域 API Base URL（可在 index.html 或部署環境覆蓋）
-window.API_BASE = window.API_BASE || '';
-const API_PREFIX = '/api/v2';
+/* ============================================================
+ * 工具：組出基礎 URL
+ * ============================================================ */
+function apiURL(path) {
+  return String(window.API_BASE || "") + API_PREFIX + path;
+}
 
 function getToken() {
-  return localStorage.getItem('auth_token');
+  return localStorage.getItem("auth_token");
 }
 
-// ============================================
-// 生成完整 URL
-// ============================================
-
-function apiURL(path) {
-  return String(window.API_BASE || '') + API_PREFIX + path;
+function getCustomerId() {
+  return (
+    window.currentCustomerId ||
+    localStorage.getItem("current_customer_id") ||
+    null
+  );
 }
 
-// ============================================
-// 全域 API 函數
-// ============================================
+/* ============================================================
+ * API 主函式
+ * ============================================================ */
 
-async function api(path, opts = {}) {
+function api(path, options = {}) {
   const token = getToken();
+  const customerId = getCustomerId();
 
+  // ----------------------------------------
+  // 1️⃣ URL + Query Params 構建
+  // ----------------------------------------
+  const fullUrl = apiURL(path);
+  const url = new URL(fullUrl, window.location.origin);
+
+  // options.params / options.query → 自動組 query string
+  const params = options.params || options.query;
+  if (params && typeof params === "object") {
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined && value !== null)
+        url.searchParams.set(key, String(value));
+    });
+  }
+
+  // ----------------------------------------
+  // 2️⃣ 決定是否要跳過 customer_id
+  // ----------------------------------------
+
+  // 這些 API 永遠不應該帶 customer_id
+  const ignoreCidAlways = [
+    "/auth/",
+    "/customers",   // 取得所有客戶
+  ];
+
+  const shouldSkipCid =
+    options.skipCustomerId ||
+    ignoreCidAlways.some((prefix) => path.startsWith(prefix));
+
+  // 自動加入 customer_id
+  if (!shouldSkipCid && customerId && !url.searchParams.has("customer_id")) {
+    url.searchParams.set("customer_id", customerId);
+  }
+
+  // ----------------------------------------
+  // 3️⃣ Header 設定
+  // ----------------------------------------
   const headers = {
-    ...(opts.headers || {}),
-    'Content-Type': 'application/json',
-    ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+    ...(options.headers || {}),
   };
 
-  const response = await fetch(apiURL(path), {
-    ...opts,
-    headers
-  });
+  // 自動帶 Content-Type（除非呼叫者要求 rawBody 或是 FormData）
+  if (!(options.body instanceof FormData) && !options.rawBody) {
+    headers["Content-Type"] = "application/json";
+  }
 
-  // ---------- 401 Token 過期 / 未登入處理 ----------
-  if (response.status === 401) {
-    console.warn(`401 未授權: ${path}`);
+  // 自動加入 Token
+  if (!options.skipAuth && token && !headers["Authorization"]) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
 
-    // 清 token
-    localStorage.removeItem('auth_token');
+  // ----------------------------------------
+  // 4️⃣ Body 處理
+  // ----------------------------------------
+  let body = options.body;
 
-    // 顯示登入 UI（來自 app-auth.js）
-    if (typeof showLoginModal === 'function') {
-      showLoginModal();
+  // 若是物件且不是 FormData → 自動 JSON.stringify
+  if (
+    body &&
+    typeof body === "object" &&
+    !(body instanceof FormData) &&
+    !options.rawBody
+  ) {
+    body = JSON.stringify(body);
+  }
+
+  // 自動決定 method：有 body 就用 POST
+  const method = options.method || (body ? "POST" : "GET");
+
+  const fetchOptions = {
+    ...options,
+    method,
+    headers,
+    body,
+  };
+
+  // ----------------------------------------
+  // 5️⃣ 發送請求
+  // ----------------------------------------
+  return fetch(url.toString(), fetchOptions).then(async (res) => {
+    const text = await res.text();
+    let data = null;
+
+    if (text) {
+      try {
+        data = JSON.parse(text);
+      } catch (e) {
+        data = text; // 非 JSON 回傳
+      }
     }
 
-    throw new Error("未登入或登入已過期");
-  }
+    if (!res.ok) {
+      console.error("API ERROR:", path, res.status, data);
 
-  // ---------- 4xx / 5xx 錯誤 ----------
-  if (!response.ok) {
-    const txt = await response.text().catch(() => '');
-    throw new Error(`API ${path} failed: ${response.status} ${txt}`);
-  }
+      const err = new Error(
+        `API ${path} failed: ${res.status} ${
+          data?.detail || res.statusText || ""
+        }`
+      );
+      err.status = res.status;
+      err.data = data;
+      throw err;
+    }
 
-  // ---------- 自動判斷回傳格式 ----------
-  const contentType = response.headers.get('content-type') || '';
-
-  if (contentType.includes('application/json')) {
-    return response.json();
-  }
-
-  return response.text();
+    return data;
+  });
 }
 
-// ============================================
-// 舊版 JSON API（仍保留相容）
-// ============================================
+/* ============================================================
+ * JSON 便利函式
+ * ============================================================ */
 
-async function apiJson(path, opts = {}) {
-  return api(path, opts); // 直接走 api()（已完整處理 Token / 401 / Content-Type）
+function apiJson(path, data = {}, method = "POST", extra = {}) {
+  return api(path, {
+    ...extra,
+    method,
+    body: data,
+  });
 }
 
-// ============================================
-// 導出
-// ============================================
+/* ============================================================
+ * 導出到全域
+ * ============================================================ */
 
-window.apiURL = apiURL;
 window.api = api;
 window.apiJson = apiJson;
+window.apiURL = apiURL;

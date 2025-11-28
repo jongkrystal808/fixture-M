@@ -131,6 +131,12 @@ async function apiGetFixturesSimple(statusFilter = "") {
   return api("/fixtures/simple/list" + query);
 }
 
+async function apiGetFixtureDetail(fixtureId) {
+  return api(`/fixtures/${encodeURIComponent(fixtureId)}/detail`);
+}
+
+window.apiGetFixtureDetail = apiGetFixtureDetail;
+
 // 匯出
 window.apiListFixtures = apiListFixtures;
 window.apiListFixturesStatus = apiListFixturesStatus;

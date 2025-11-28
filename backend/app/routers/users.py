@@ -8,7 +8,7 @@ from backend.app.dependencies import get_current_admin
 from backend.app.auth import hash_password
 from typing import List
 
-from backend.app.models.users import (
+from backend.app.models.user import (
     UserCreate,
     UserUpdate,
     UserResponse,
@@ -161,4 +161,20 @@ async def delete_user(
         raise HTTPException(404, "使用者不存在")
 
     return {"message": "使用者已刪除"}
+@router.put("/{user_id}/reset-password")
+async def reset_password(user_id: int, data: dict, user=Depends(get_current_admin)):
+    """
+    管理員重設密碼
+    Body: { "new_password": "1234" }
+    """
+    new_pwd = data.get("new_password")
+    if not new_pwd:
+        raise HTTPException(400, "缺少 new_password")
+
+    hashed = hash_password(new_pwd)
+
+    sql = "UPDATE users SET password=%s WHERE id=%s"
+    db.execute_update(sql, (hashed, user_id))
+
+    return {"message": "密碼已更新"}
 

@@ -17,23 +17,22 @@ import time
 import os
 
 # 導入路由
-from backend.app.routers.customers import router as customers_router
 from backend.app.routers.auth import router as auth_router
-from backend.app.routers.fixtures import router as fixtures_router
-from backend.app.routers.receipts import router as receipts_router
-from backend.app.routers.returns import router as returns_router
-from backend.app.routers.replacement import router as replacement_router
-from backend.app.routers.usage import router as usage_router
-from backend.app.routers.machine_models import router as machine_models_router
-from backend.app.routers.stats import router as stats_router
-from backend.app.routers.users import router as users_router
-from backend.app.routers.stations import router as stations_router
-from backend.app.routers.model_stations import router as model_stations_router
+from backend.app.routers.customers import router as customers_router
 from backend.app.routers.fixture_requirements import router as fixture_requirements_router
+from backend.app.routers.fixtures import router as fixtures_router
+from backend.app.routers.machine_models import router as machine_models_router
+from backend.app.routers.model_stations import router as model_stations_router
 from backend.app.routers.owners import router as owners_router
+from backend.app.routers.receipts import router as receipts_router
+from backend.app.routers.replacement import router as replacement_router
+from backend.app.routers.returns import router as returns_router
 from backend.app.routers.serials import router as serials_router
-
-
+from backend.app.routers.stations import router as stations_router
+from backend.app.routers.stats import router as stats_router
+from backend.app.routers.usage import router as usage_router
+from backend.app.routers.users import router as users_router
+from backend.app.routers.transactions import router as transactions_router
 
 
 # 導入配置和資料庫
@@ -127,8 +126,8 @@ app = FastAPI(
     ---
     
     **開發者**: 治具管理系統團隊  
-    **版本**: 2.0.0  
-    **最後更新**: 2025-11-07
+    **版本**: 3.0.0  
+    **最後更新**: 2025-11-21
     """,
     version=settings.API_VERSION,
     lifespan=lifespan,
@@ -240,6 +239,8 @@ app.include_router(serials_router, prefix="/api/v2")
 # ============================================================
 # 🔄 流程類（Process APIs）
 # ============================================================
+
+app.include_router(transactions_router, prefix="/api/v2")
 app.include_router(receipts_router, prefix="/api/v2")        # 收料
 app.include_router(returns_router, prefix="/api/v2")         # 退料
 app.include_router(usage_router, prefix="/api/v2")           # 使用紀錄
@@ -389,7 +390,7 @@ async def root():
                     <p>API 參考文件</p>
                 </a>
                 
-                <a href="/web/index.html" class="link-card">
+                <a href="/web/index.html_bk" class="link-card">
                     <div class="icon">🌐</div>
                     <h3>前端頁面</h3>
                     <p>系統管理介面</p>

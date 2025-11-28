@@ -8,7 +8,7 @@ Authentication API Routes
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 
-from backend.app.models.users import (
+from backend.app.models.user import (
     UserCreate,
     UserLogin,
     LoginResponse,

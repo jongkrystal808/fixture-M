@@ -1,5 +1,5 @@
 """
-依賴注入模組 (v3.0)
+依賴注入模組 (v3.0 修正版)
 Dependencies for Authentication / Authorization
 """
 
@@ -9,7 +9,6 @@ from fastapi.security import OAuth2PasswordBearer
 
 from backend.app.auth import (
     get_token_user,
-    verify_token,
     ensure_user_active,
 )
 from backend.app.database import db
@@ -23,21 +22,15 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v2/auth/login")
 
 
 # ============================================================
-# 取得目前登入的使用者
+# 取得目前登入的使用者（依據你的 users table 修正）
 # ============================================================
 
 async def get_current_user(token: str = Depends(oauth2_scheme)) -> Dict:
     """
     驗證 JWT Token 並取得使用者資訊 (v3.0)
-    必須包含：
-    - user_id
-    - username
-    - role
-    - customer_id
-    - full_name
-    - email
-    - is_active
+    與你的 users 資料表欄位完全一致
     """
+
     payload = get_token_user(token)
     if not payload:
         raise HTTPException(
@@ -46,13 +39,12 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> Dict:
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # 停用帳號禁止使用
     ensure_user_active(payload)
 
-    # 進一步確認 user 是否存在資料庫
+    # ▲ 修正：只查 users 表存在的欄位
     db_user = db.execute_query(
         """
-        SELECT id, username, full_name, email, role, is_active, customer_id, created_at
+        SELECT id, username, role, full_name, email, is_active, created_at
         FROM users
         WHERE id=%s
         """,
@@ -69,7 +61,7 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> Dict:
 
 
 # ============================================================
-# 取得管理員使用者
+# 管理員驗證
 # ============================================================
 
 async def get_current_admin(
@@ -84,15 +76,13 @@ async def get_current_admin(
 
 
 # ============================================================
-# Optional User (可選登入)
+# Optional User（匿名可訪問）
 # ============================================================
 
 async def get_current_user_optional(
     token: Optional[str] = Depends(oauth2_scheme)
 ) -> Optional[Dict]:
-    """
-    允許匿名（無 Token）訪問的接口
-    """
+
     if not token:
         return None
 
@@ -104,7 +94,7 @@ async def get_current_user_optional(
 
     db_user = db.execute_query(
         """
-        SELECT id, username, full_name, email, role, is_active, customer_id, created_at
+        SELECT id, username, role, full_name, email, is_active, created_at
         FROM users
         WHERE id=%s
         """,
@@ -118,7 +108,7 @@ async def get_current_user_optional(
 
 
 # ============================================================
-# 快速取得 username / user_id / customer_id
+# 快速取 username / user_id
 # ============================================================
 
 async def get_current_username(
@@ -131,15 +121,6 @@ async def get_current_user_id(
     user=Depends(get_current_user)
 ) -> int:
     return user["id"]
-
-
-async def get_current_customer_id(
-    user=Depends(get_current_user)
-) -> str:
-    """
-    取得使用者所屬的 customer_id（v3.0 必備）
-    """
-    return user["customer_id"]
 
 
 # ============================================================

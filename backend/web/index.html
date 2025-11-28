@@ -37,8 +37,8 @@
         <div class="modal space-y-4">
           <div class="flex items-center justify-between">
             <h3 class="font-semibold text-lg">登入</h3>
-            <!-- 使用 app-auth.js 的 hideLoginModal() -->
-            <button class="btn btn-ghost text-xs" onclick="hideLoginModal()">關閉</button>
+            <!-- 使用 app-auth.js 的 closeLogin() -->
+            <button class="btn btn-ghost text-xs" onclick="closeLogin()">關閉</button>
           </div>
           <div class="grid gap-3">
             <div class="field">
@@ -54,6 +54,20 @@
           </div>
         </div>
       </div>
+        <!-- 客戶選擇視窗 -->
+        <dialog id="customerSelectModal" class="modal">
+          <div class="modal-box space-y-4">
+            <h3 class="font-semibold text-lg">請選擇客戶</h3>
+
+            <select id="customerSelect" class="select select-bordered w-full">
+              <option value="" disabled selected>請選擇客戶</option>
+            </select>
+
+            <div class="flex justify-end gap-2">
+              <button class="btn" onclick="confirmCustomerSelection()">確認</button>
+            </div>
+          </div>
+        </dialog>
 
       <!-- 頂部導覽 -->
         <header class="sticky top-0 z-40 bg-white/80 backdrop-blur border-b border-gray-200">
@@ -66,10 +80,13 @@
           </div>
           <div class="flex items-center gap-2">
             <span class="pill border-gray-300" id="clock">--:--</span>
-            <!-- 這個 id 會被 app-auth.js 的 loadCurrentUser() 更新 -->
             <span id="currentUserDisplay" class="text-xs text-gray-600">未登入</span>
-            <!-- 改成呼叫 showLoginModal()，不要再用 openLogin() -->
+
+            <!-- 登入按鈕 -->
             <button class="btn btn-ghost" id="btnLogin" onclick="showLoginModal()">登入</button>
+
+            <!-- 登出按鈕（預設隱藏） -->
+            <button class="btn btn-ghost hidden" id="btnLogout" onclick="doLogout()">登出</button>
           </div>
         </div>
       </header>
@@ -149,7 +166,7 @@
         </div>
       </div>
     </section>
-
+    重寫
        <!-- 收料 / 退料 -->
     <section id="tab-receipts" class="hidden space-y-4">
 
@@ -196,7 +213,8 @@
 
           <!-- 新增 / 匯入按鈕 -->
           <div class="flex gap-2 flex-wrap">
-            <button class="btn btn-primary" onclick="toggleReceiptAdd(true)">新增收料記錄</button>
+            <button class="btn btn-primary" onclick="document.getElementById('receiptAddForm').classList.toggle('hidden')">
+                新增收料記錄</button>
 
             <label class="btn btn-ghost cursor-pointer">
               <input id="receiptXlsx" type="file" accept=".xlsx" class="hidden"
@@ -276,11 +294,11 @@
                 <th class="py-2 pr-4">序號</th>
                 <th class="py-2 pr-4">操作人員</th>
                 <th class="py-2 pr-4">備註</th>
-                <th class="py-2 pr-4">刪除</th>
               </tr>
               </thead>
               <tbody id="receiptTable"></tbody>
             </table>
+            <div id="receiptPagination" class="flex mt-4 justify-center"></div>
           </div>
         </div>
 
@@ -324,7 +342,6 @@
           <!-- 新增 / 匯入 -->
           <div class="flex gap-2 flex-wrap">
             <button class="btn btn-primary" onclick="toggleReturnAdd(true)">新增退料記錄</button>
-
             <label class="btn btn-ghost cursor-pointer">
               <input id="returnXlsx" type="file" accept=".xlsx" class="hidden"
                      onchange="handleReturnImport(this)" />
@@ -403,11 +420,11 @@
                 <th class="py-2 pr-4">序號</th>
                 <th class="py-2 pr-4">操作人員</th>
                 <th class="py-2 pr-4">備註</th>
-                <th class="py-2 pr-4">刪除</th>
               </tr>
               </thead>
               <tbody id="returnTable"></tbody>
             </table>
+              <div id="returnPagination" class="flex gap-2 mt-3 justify-center"></div>
           </div>
         </div>
 
@@ -1405,11 +1422,42 @@
     <div class="bg-gray-900 text-white px-4 py-2 rounded-xl shadow-lg">訊息</div>
   </div>
 
+<!-- =========================================== -->
+<!-- 🟦 Fixture Detail Drawer (右側滑出面板)     -->
+<!-- =========================================== -->
+<div id="fixtureDetailDrawer"
+     class="fixed top-0 right-0 w-full md:w-2/3 lg:w-1/2 h-full bg-white shadow-2xl transform translate-x-full transition-transform duration-300 z-50 overflow-y-auto">
+
+  <div class="p-5 border-b flex justify-between">
+    <h2 class="text-xl font-semibold">治具詳情</h2>
+    <button onclick="closeFixtureDetail()" class="btn btn-ghost text-lg">✕</button>
+  </div>
+
+  <div id="fixtureDetailContent" class="p-5 space-y-6">
+    <!-- JS 動態渲染 -->
+  </div>
+
+</div>
+
+<!-- =========================================== -->
+<!-- 🟩 Model Detail Drawer -->
+<!-- =========================================== -->
+<div id="modelDetailDrawer"
+     class="fixed top-0 right-0 w-full md:w-2/3 lg:w-1/2 h-full bg-white shadow-2xl transform translate-x-full transition-transform duration-300 z-50 overflow-y-auto">
+
+  <div class="p-5 border-b flex justify-between">
+    <h2 class="text-xl font-semibold">機種詳情</h2>
+    <button onclick="closeModelDetail()" class="btn btn-ghost text-lg">✕</button>
+  </div>
+
+  <div id="modelDetailContent" class="p-5 space-y-6">
+    <!-- JS會動態放內容 -->
+  </div>
+
+</div>
 
 
                 <!-- 引入 JavaScript -->
-            <!-- ================================ -->
-            <!-- 💡 基礎核心：必須最先載入        -->
             <!-- ================================ -->
 
             <!-- Excel 匯入（必須最上，以便後續所有匯入功能使用） -->
@@ -1426,6 +1474,13 @@
             <script src="/web/js/utils/utils.js"></script>
             <script src="/web/js/utils/calculations.js"></script>
             <script src="/web/js/utils/ui-render.js"></script>
+
+                        <!-- Shared Modules -->
+            <script src="/web/js/shared/serial-utils.js"></script>
+            <script src="/web/js/shared/export-tools.js"></script>
+            <script src="/web/js/shared/ui-table.js"></script>
+            <script src="/web/js/shared/ui-pagination.js"></script>
+
 
             <!-- ================================ -->
             <!-- 🔐 認證 / 使用者相關               -->

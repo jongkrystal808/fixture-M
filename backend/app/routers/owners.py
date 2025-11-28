@@ -10,7 +10,7 @@ from typing import List, Optional
 
 from backend.app.database import db
 from backend.app.dependencies import get_current_user, get_current_admin
-from backend.app.models.owners import (
+from backend.app.models.owner import (
     OwnerCreate,
     OwnerUpdate,
     OwnerResponse,

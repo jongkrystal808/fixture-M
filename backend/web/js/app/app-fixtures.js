@@ -273,3 +273,152 @@ function debounce(fn, delay = 250) {
     timer = setTimeout(() => fn(...args), delay);
   };
 }
+async function openModelDetail(modelId) {
+  const drawer = document.getElementById("modelDetailDrawer");
+  const box = document.getElementById("modelDetailContent");
+
+  drawer.classList.remove("translate-x-full");
+  box.innerHTML = `<div class="p-3 text-gray-400">載入中...</div>`;
+
+  try {
+    const data = await apiGetModelDetail(modelId);
+
+    const m = data.model;
+    const stations = data.stations;
+    const reqs = data.fixture_requirements;
+    const fixtures = data.fixtures;
+    const summary = data.status_summary;
+
+    box.innerHTML = `
+      <!-- 基本資料 -->
+      <section>
+        <h3 class="font-semibold text-lg mb-2">基本資料</h3>
+        <div class="grid grid-cols-2 gap-3 text-sm">
+          <div><strong>機種代碼：</strong>${m.id}</div>
+          <div><strong>名稱：</strong>${m.model_name}</div>
+          <div><strong>備註：</strong>${m.note || "-"}</div>
+          <div><strong>建立時間：</strong>${m.created_at || "-"}</div>
+        </div>
+      </section>
+
+      <!-- 綁定站點 -->
+      <section>
+        <h3 class="font-semibold text-lg mb-2">綁定站點</h3>
+        ${renderModelStationsTable(stations)}
+      </section>
+
+      <!-- 治具需求 -->
+      <section>
+        <h3 class="font-semibold text-lg mb-2">治具需求</h3>
+        ${renderFixtureReqTable(reqs)}
+      </section>
+
+      <!-- 所有治具 -->
+      <section>
+        <h3 class="font-semibold text-lg mb-2">旗下治具</h3>
+        ${renderModelFixturesTable(fixtures)}
+      </section>
+
+      <!-- 狀態統計 -->
+      <section>
+        <h3 class="font-semibold text-lg mb-2">治具狀態統計</h3>
+        ${renderStatusSummary(summary)}
+      </section>
+    `;
+
+  } catch (err) {
+    box.innerHTML = `<div class="text-red-500">載入失敗</div>`;
+  }
+}
+function renderModelStationsTable(rows) {
+  if (!rows || rows.length === 0)
+    return `<div class="text-gray-400">沒有綁定任何站點</div>`;
+
+  return `
+    <table class="min-w-full text-sm">
+      <thead><tr>
+        <th class="py-1 pr-3">站點編號</th>
+        <th class="py-1 pr-3">站點名稱</th>
+      </tr></thead>
+      <tbody>
+        ${rows.map(r => `
+          <tr>
+            <td class="py-1 pr-3">${r.station_id}</td>
+            <td class="py-1 pr-3">${r.station_name}</td>
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+  `;
+}
+
+function renderFixtureReqTable(rows) {
+  if (!rows || rows.length === 0)
+    return `<div class="text-gray-400">無治具需求設定</div>`;
+
+  return `
+    <table class="min-w-full text-sm">
+      <thead><tr>
+        <th class="py-1 pr-3">站點</th>
+        <th class="py-1 pr-3">治具</th>
+        <th class="py-1 pr-3">需求量</th>
+        <th class="py-1 pr-3">備註</th>
+      </tr></thead>
+      <tbody>
+        ${rows.map(r => `
+          <tr>
+            <td>${r.station_id} - ${r.station_name}</td>
+            <td>${r.fixture_id}</td>
+            <td>${r.required_qty}</td>
+            <td>${r.note || ""}</td>
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+  `;
+}
+
+function renderModelFixturesTable(rows) {
+  if (!rows || rows.length === 0)
+    return `<div class="text-gray-400">沒有治具屬於此機種</div>`;
+
+  return `
+    <table class="min-w-full text-sm">
+      <thead><tr>
+        <th class="py-1 pr-3">治具編號</th>
+        <th class="py-1 pr-3">狀態</th>
+        <th class="py-1 pr-3">站點</th>
+        <th class="py-1 pr-3">負責人</th>
+        <th class="py-1 pr-3">更新時間</th>
+      </tr></thead>
+      <tbody>
+        ${rows.map(r => `
+          <tr>
+            <td>${r.fixture_id}</td>
+            <td>${r.status}</td>
+            <td>${r.station_id || "-"}</td>
+            <td>${r.owner_id || "-"}</td>
+            <td>${r.updated_at || "-"}</td>
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+  `;
+}
+
+function renderStatusSummary(map) {
+  const keys = Object.keys(map || {});
+  if (keys.length === 0)
+    return `<div class="text-gray-400">無治具統計資料</div>`;
+
+  return `
+    <ul class="list-disc pl-5 text-sm">
+      ${keys.map(k => `<li>${k}: ${map[k]} 個</li>`).join("")}
+    </ul>
+  `;
+}
+function closeModelDetail() {
+  document.getElementById("modelDetailDrawer")
+    .classList.add("translate-x-full");
+}
+

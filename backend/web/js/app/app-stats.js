@@ -9,6 +9,10 @@
  * ✔ 機種治具需求
  */
 
+function getCustomerId() {
+  return localStorage.getItem("customer_id") || "moxa"; // 若你要改，這裡可換成預設客戶
+}
+
 /* ============================================================
  * 初始化
  * ============================================================ */
@@ -24,17 +28,18 @@ document.addEventListener("DOMContentLoaded", () => {
 
 async function loadStatsSummary() {
   try {
-    const data = await apiGetStatsSummary();
+    const customer_id = getCustomerId();
+    const data = await apiGetStatsSummary(customer_id);
 
-    document.getElementById("sumFixtureTotal").innerText = data.total_fixtures;
-    document.getElementById("sumUsedToday").innerText = data.used_today;
-    document.getElementById("sumReplacedToday").innerText = data.replaced_today;
-    document.getElementById("sumTotalUsage").innerText = data.total_usage;
-    document.getElementById("sumTotalReplace").innerText = data.total_replacements;
+    document.getElementById("sumFixtureTotal").innerText = data.total_fixtures ?? "0";
+    document.getElementById("sumUsedToday").innerText = data.used_today ?? "0";
+    document.getElementById("sumReplacedToday").innerText = data.replaced_today ?? "0";
+    document.getElementById("sumTotalUsage").innerText = data.total_usage ?? "0";
+    document.getElementById("sumTotalReplace").innerText = data.total_replacements ?? "0";
 
-    document.getElementById("sumCustomerCnt").innerText = data.customer_count;
-    document.getElementById("sumModelCnt").innerText = data.model_count;
-    document.getElementById("sumStationCnt").innerText = data.station_count;
+    document.getElementById("sumCustomerCnt").innerText = data.customer_count ?? "0";
+    document.getElementById("sumModelCnt").innerText = data.model_count ?? "0";
+    document.getElementById("sumStationCnt").innerText = data.station_count ?? "0";
 
   } catch (err) {
     console.error(err);
@@ -48,7 +53,8 @@ async function loadStatsSummary() {
 
 async function loadFixtureStatusView() {
   try {
-    const rows = await apiGetFixtureStatus();
+    const customer_id = getCustomerId();
+    const rows = await apiGetFixtureStatus(customer_id);
     renderFixtureStatusTable(rows);
   } catch (err) {
     console.error(err);
@@ -73,7 +79,7 @@ function renderFixtureStatusTable(rows) {
       <td>${r.fixture_id}</td>
       <td>${r.fixture_name}</td>
       <td>${r.last_used_at || ""}</td>
-      <td>${r.used_count}</td>
+      <td>${r.used_count ?? 0}</td>
       <td>${r.replacement_due || ""}</td>
       <td>${r.status || ""}</td>
     `;
@@ -90,7 +96,8 @@ async function loadMaxStationsUI() {
   if (!modelId) return;
 
   try {
-    const rows = await apiGetMaxStations(modelId);
+    const customer_id = getCustomerId();
+    const rows = await apiGetMaxStations(modelId, customer_id);
     renderMaxStationsTable(rows);
   } catch (err) {
     console.error(err);
@@ -127,11 +134,12 @@ async function loadFixtureUsageStatsUI() {
   if (!fixtureId) return toast("請輸入治具編號");
 
   try {
-    const data = await apiGetFixtureUsageStats(fixtureId);
+    const customer_id = getCustomerId();
+    const data = await apiGetFixtureUsageStats(fixtureId, customer_id);
 
     document.getElementById("fu_last_used").innerText = data.last_used_at || "—";
-    document.getElementById("fu_used_count").innerText = data.used_count;
-    document.getElementById("fu_replaced_count").innerText = data.replaced_count;
+    document.getElementById("fu_used_count").innerText = data.used_count ?? 0;
+    document.getElementById("fu_replaced_count").innerText = data.replaced_count ?? 0;
 
     renderFixtureUsageHistory(data.history);
 
@@ -171,7 +179,8 @@ async function loadModelRequirementsUI() {
   if (!modelId) return;
 
   try {
-    const rows = await apiGetModelRequirements(modelId);
+    const customer_id = getCustomerId();
+    const rows = await apiGetModelRequirements(modelId, customer_id);
     renderModelRequirementsTable(rows);
   } catch (err) {
     console.error(err);

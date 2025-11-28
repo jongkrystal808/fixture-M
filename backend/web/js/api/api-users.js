@@ -2,7 +2,7 @@
  * 使用者管理 API (v3.0)
  * api-users.js
  *
- * 對應後端 routers/users.py：
+ * 對應後端 routers/user.py：
  *
  * GET    /users
  * GET    /users/{id}

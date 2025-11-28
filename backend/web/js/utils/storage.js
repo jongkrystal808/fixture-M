@@ -6,6 +6,14 @@
 // LocalStorage 鍵名
 const LS_KEY = 'fixtureApp.v6.3';
 
+// 其他通用狀態鍵（與 PRD 中的狀態一致）
+const STORAGE_KEYS = {
+  AUTH_TOKEN: 'auth_token',
+  CURRENT_CUSTOMER: 'current_customer',
+  CUSTOMERS_LIST: 'customers_list',
+  USER_INFO: 'user_info'
+};
+
 // 全局狀態變數
 window.authUser = null;
 window.mockOwners = [];
@@ -74,6 +82,55 @@ function clearState() {
   }
 }
 
+/**
+ * CustomerState - 管理前端選擇的客戶
+ */
+const CustomerState = {
+  getCurrentCustomer() {
+    return localStorage.getItem(STORAGE_KEYS.CURRENT_CUSTOMER);
+  },
+
+  setCurrentCustomer(customerId) {
+    if (!customerId) return;
+    localStorage.setItem(STORAGE_KEYS.CURRENT_CUSTOMER, customerId);
+    window.dispatchEvent(
+      new CustomEvent('customer-changed', {
+        detail: { customerId }
+      })
+    );
+  },
+
+  clearCurrentCustomer() {
+    localStorage.removeItem(STORAGE_KEYS.CURRENT_CUSTOMER);
+  },
+
+  getCachedCustomers() {
+    const cached = localStorage.getItem(STORAGE_KEYS.CUSTOMERS_LIST);
+    return cached ? JSON.parse(cached) : null;
+  },
+
+  cacheCustomers(customers) {
+    localStorage.setItem(STORAGE_KEYS.CUSTOMERS_LIST, JSON.stringify(customers));
+  }
+};
+
+/**
+ * Token 管理
+ */
+const TokenManager = {
+  getToken() {
+    return localStorage.getItem(STORAGE_KEYS.AUTH_TOKEN);
+  },
+
+  setToken(token) {
+    localStorage.setItem(STORAGE_KEYS.AUTH_TOKEN, token);
+  },
+
+  removeToken() {
+    localStorage.removeItem(STORAGE_KEYS.AUTH_TOKEN);
+  }
+};
+
 // 安全的 saveState 包裝（容錯）
 const originalSaveState = saveState;
 window.saveState = function() {
@@ -96,3 +153,5 @@ window.loadState = function() {
 
 // 匯出函數
 window.clearState = clearState;
+window.CustomerState = CustomerState;
+window.TokenManager = TokenManager;

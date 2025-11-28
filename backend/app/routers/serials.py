@@ -1,13 +1,11 @@
 """
-序號管理 API (v3.0)
+序號管理 API (v3.0 修正版)
 Serial Number Management API
 
-資料表: fixture_serials
-用途:
-- 查詢治具序號
-- 新增序號
-- 批量新增序號
-- 刪除序號
+重點更動：
+✔ 移除 get_current_customer_id（因 users table 無 customer_id）
+✔ 改為從 Query 傳入 customer_id
+✔ 與 fixture_serials / fixtures 結構完全一致
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -18,7 +16,6 @@ from backend.app.database import db
 from backend.app.dependencies import (
     get_current_user,
     get_current_admin,
-    get_current_customer_id,
 )
 from backend.app.utils.serial_tools import (
     expand_serial_range,
@@ -54,8 +51,8 @@ def ensure_fixture(customer_id: str, fixture_id: str):
 @router.get("", summary="查詢序號列表")
 async def list_serials(
     fixture_id: str = Query(...),
+    customer_id: str = Query(..., description="客戶名稱"),
     search: Optional[str] = None,
-    customer_id: str = Depends(get_current_customer_id),
     user=Depends(get_current_user)
 ):
     ensure_fixture(customer_id, fixture_id)
@@ -64,14 +61,14 @@ async def list_serials(
     params = [customer_id, fixture_id]
 
     if search:
-        where.append("serial_no LIKE %s")
+        where.append("serial_number LIKE %s")
         params.append(f"%{search}%")
 
     sql = f"""
-        SELECT id, customer_id, fixture_id, serial_no, created_at
+        SELECT id, customer_id, fixture_id, serial_number, status, receipt_date, created_at
         FROM fixture_serials
         WHERE {" AND ".join(where)}
-        ORDER BY serial_no ASC
+        ORDER BY serial_number ASC
     """
     rows = db.execute_query(sql, tuple(params))
 
@@ -88,15 +85,16 @@ async def list_serials(
 async def serial_exists(
     fixture_id: str,
     serial_no: str,
-    customer_id: str = Depends(get_current_customer_id),
+    customer_id: str = Query(...),
     user=Depends(get_current_user)
 ):
     ensure_fixture(customer_id, fixture_id)
 
     row = db.execute_query(
         """
-        SELECT id FROM fixture_serials
-        WHERE customer_id=%s AND fixture_id=%s AND serial_no=%s
+        SELECT id 
+        FROM fixture_serials
+        WHERE customer_id=%s AND fixture_id=%s AND serial_number=%s
         """,
         (customer_id, fixture_id, serial_no)
     )
@@ -111,7 +109,7 @@ async def serial_exists(
 async def add_serial(
     fixture_id: str,
     serial_no: str,
-    customer_id: str = Depends(get_current_customer_id),
+    customer_id: str = Query(...),
     admin=Depends(get_current_admin)
 ):
     ensure_fixture(customer_id, fixture_id)
@@ -120,7 +118,7 @@ async def add_serial(
     exists = db.execute_query(
         """
         SELECT id FROM fixture_serials
-        WHERE customer_id=%s AND fixture_id=%s AND serial_no=%s
+        WHERE customer_id=%s AND fixture_id=%s AND serial_number=%s
         """,
         (customer_id, fixture_id, serial_no)
     )
@@ -134,7 +132,9 @@ async def add_serial(
         {
             "customer_id": customer_id,
             "fixture_id": fixture_id,
-            "serial_no": serial_no,
+            "serial_number": serial_no,
+            "status": "available",
+            "receipt_date": now.date(),
             "created_at": now,
         }
     )
@@ -151,7 +151,7 @@ async def add_serials_batch(
     serial_start: Optional[str] = None,
     serial_end: Optional[str] = None,
     serials: Optional[str] = None,
-    customer_id: str = Depends(get_current_customer_id),
+    customer_id: str = Query(...),
     admin=Depends(get_current_admin)
 ):
     ensure_fixture(customer_id, fixture_id)
@@ -159,10 +159,12 @@ async def add_serials_batch(
     # 模式 1：序號區間
     if serial_start and serial_end:
         serial_list = expand_serial_range(serial_start, serial_end)
+
     # 模式 2：逗號清單
     elif serials:
         serial_list = [x.strip() for x in serials.split(",")]
         serial_list = normalise_serial_list(serial_list)
+
     else:
         raise HTTPException(400, "請提供序號區間或序號列表")
 
@@ -174,7 +176,7 @@ async def add_serials_batch(
         exists = db.execute_query(
             """
             SELECT id FROM fixture_serials
-            WHERE customer_id=%s AND fixture_id=%s AND serial_no=%s
+            WHERE customer_id=%s AND fixture_id=%s AND serial_number=%s
             """,
             (customer_id, fixture_id, sn)
         )
@@ -188,7 +190,9 @@ async def add_serials_batch(
             {
                 "customer_id": customer_id,
                 "fixture_id": fixture_id,
-                "serial_no": sn,
+                "serial_number": sn,
+                "status": "available",
+                "receipt_date": now.date(),
                 "created_at": now,
             }
         )
@@ -208,7 +212,6 @@ async def add_serials_batch(
 @router.delete("/{serial_id}", summary="刪除序號")
 async def delete_serial(
     serial_id: int,
-    customer_id: str = Depends(get_current_customer_id),
     admin=Depends(get_current_admin)
 ):
     affected = db.execute_update(

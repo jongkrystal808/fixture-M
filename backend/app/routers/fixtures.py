@@ -1,7 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from typing import Optional, List
 import traceback
-
 from backend.app.database import db
 from backend.app.dependencies import get_current_user, get_current_admin
 from backend.app.models.fixture import (
@@ -402,3 +401,125 @@ async def fixture_statistics(customer_id: str = Query(...)):
     except Exception as e:
         print("❌ [fixture_statistics] ERROR:\n", traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"查詢統計資料失敗: {repr(e)}")
+# ============================================================
+# 取得治具完整詳細資料 (DETAIL)
+# ============================================================
+
+@router.get("/{fixture_id}/detail", summary="取得治具完整詳細資料")
+async def get_fixture_detail(
+    fixture_id: str,
+    customer_id: str = Query(...),
+    current_user: dict = Depends(get_current_user)
+):
+    try:
+        # ---------------------------
+        # 1) 基本資料
+        # ---------------------------
+        fixture_sql = """
+            SELECT
+                f.id AS fixture_id,
+                f.customer_id,
+                f.fixture_name,
+                f.fixture_type,
+                f.serial_number,
+                f.self_purchased_qty,
+                f.customer_supplied_qty,
+                f.available_qty,
+                f.deployed_qty,
+                f.maintenance_qty,
+                f.scrapped_qty,
+                f.returned_qty,
+                f.storage_location,
+                f.replacement_cycle,
+                f.cycle_unit,
+                f.status,
+                f.last_replacement_date,
+                f.last_notification_time,
+                f.owner_id,
+                o.primary_owner AS owner_name,
+                o.email AS owner_email,
+                f.note,
+                f.created_at,
+                f.updated_at
+            FROM fixtures f
+            LEFT JOIN owners o ON f.owner_id = o.id
+            WHERE f.id = %s AND f.customer_id = %s
+            LIMIT 1
+        """
+
+        fixture_rows = db.execute_query(fixture_sql, (fixture_id, customer_id))
+        if not fixture_rows:
+            raise HTTPException(status_code=404, detail="治具不存在")
+
+        fixture = fixture_rows[0]
+
+        # ---------------------------
+        # 2) 最近收料紀錄
+        # ---------------------------
+        last_receipt_sql = """
+            SELECT id, transaction_date, order_no, operator, note
+            FROM material_transactions
+            WHERE fixture_id = %s
+              AND customer_id = %s
+              AND transaction_type = 'receipt'
+            ORDER BY transaction_date DESC, id DESC
+            LIMIT 1
+        """
+
+        last_receipt_rows = db.execute_query(last_receipt_sql, (fixture_id, customer_id))
+        last_receipt = last_receipt_rows[0] if last_receipt_rows else None
+
+        # ---------------------------
+        # 3) 最近退料紀錄
+        # ---------------------------
+        last_return_sql = """
+            SELECT id, transaction_date, order_no, operator, note
+            FROM material_transactions
+            WHERE fixture_id = %s
+              AND customer_id = %s
+              AND transaction_type = 'return'
+            ORDER BY transaction_date DESC, id DESC
+            LIMIT 1
+        """
+
+        last_return_rows = db.execute_query(last_return_sql, (fixture_id, customer_id))
+        last_return = last_return_rows[0] if last_return_rows else None
+
+        # ---------------------------
+        # 4) 使用紀錄 usage_logs
+        # ---------------------------
+        usage_sql = """
+            SELECT id, used_at, station_id, operator, note
+            FROM usage_logs
+            WHERE fixture_id = %s AND customer_id = %s
+            ORDER BY used_at DESC
+            LIMIT 100
+        """
+        usage_logs = db.execute_query(usage_sql, (fixture_id, customer_id))
+
+        # ---------------------------
+        # 5) 更換紀錄 replacement_logs
+        # ---------------------------
+        replacement_sql = """
+            SELECT id, replaced_at, old_serial, new_serial, operator, note
+            FROM replacement_logs
+            WHERE fixture_id = %s AND customer_id = %s
+            ORDER BY replaced_at DESC
+            LIMIT 100
+        """
+        replacement_logs = db.execute_query(replacement_sql, (fixture_id, customer_id))
+
+        # ---------------------------
+        # 6) 統一回傳格式
+        # ---------------------------
+        return {
+            "fixture": fixture,
+            "last_receipt": last_receipt,
+            "last_return": last_return,
+            "usage_logs": usage_logs,
+            "replacement_logs": replacement_logs
+        }
+
+    except Exception as e:
+        print("❌ [get_fixture_detail] ERROR:\n", traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"查詢治具詳細資料失敗: {repr(e)}")

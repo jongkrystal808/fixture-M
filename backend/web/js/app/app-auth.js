@@ -1,131 +1,184 @@
 /**
- * 前端登入與權限控制 (v3.0)
- * app-auth.js
- *
- * ✔ Login / Logout
- * ✔ 自動儲存 Token
- * ✔ 載入登入者資訊
- * ✔ 控制 admin 權限
- * ✔ 401 自動跳出登入視窗
+ * app-auth.js (優化完整版本)
+ * - 登入
+ * - 登出
+ * - 自動載入目前使用者
+ * - customer_id 選擇器
+ * - 全域函式 export
  */
 
 /* ============================================================
- * Login Modal 控制
+ * 顯示 / 關閉登入視窗
  * ============================================================ */
 
 function showLoginModal() {
-  document.getElementById("loginModal").classList.remove("hidden");
+  const m = document.getElementById("loginModal");
+  if (m) m.style.display = "flex";
 }
 
-function hideLoginModal() {
-  document.getElementById("loginModal").classList.add("hidden");
+function closeLogin() {
+  const m = document.getElementById("loginModal");
+  if (m) m.style.display = "none";
 }
 
 /* ============================================================
- * Login
+ * 登入流程（新版錯誤處理）
  * ============================================================ */
 
 async function doLogin() {
-  const username = document.getElementById("loginId").value.trim();
-  const password = document.getElementById("loginPwd").value.trim();
+  const idEl = document.getElementById("loginId");
+  const pwEl = document.getElementById("loginPwd");
+  const msg = document.getElementById("loginMsg");
+
+  const username = idEl.value.trim();
+  const password = pwEl.value.trim();
+
+  msg.textContent = "";
 
   if (!username || !password) {
-    return toast("請輸入帳號與密碼", "error");
+    msg.textContent = "請輸入帳號與密碼";
+    pwEl.focus();
+    return;
   }
 
   try {
-    const result = await apiLogin(username, password);
+    const res = await apiLogin(username, password);
 
-    if (result && result.access_token) {
-      toast("登入成功");
-      hideLoginModal();
-      await loadCurrentUser();
-    } else {
-      toast("登入失敗，請確認帳號密碼", "error");
+    if (res && res.access_token) {
+      localStorage.setItem("auth_token", res.access_token);
     }
 
+    await loadCurrentUser();
+    closeLogin();
+
   } catch (err) {
-    console.error("Login error:", err);
-    toast("登入失敗", "error");
+    console.error("login error:", err);
+
+    const status = err.status;
+    const detail = err.data?.detail || "";
+
+    if (status === 401) {
+      msg.textContent = "帳號或密碼錯誤，請再試一次";
+    } else if (status === 500) {
+      msg.textContent = "伺服器錯誤，請聯絡管理員";
+    } else {
+      msg.textContent = detail || "登入失敗，請稍後再試";
+    }
+
+    pwEl.value = "";
+    pwEl.focus();
   }
 }
 
 /* ============================================================
- * Logout
+ * 登出
  * ============================================================ */
 
 function doLogout() {
   localStorage.removeItem("auth_token");
-  toast("已登出");
+
+  const display = document.getElementById("currentUserDisplay");
+  const btnLogin = document.getElementById("btnLogin");
+  const btnLogout = document.getElementById("btnLogout");
+
+  if (display) display.textContent = "未登入";
+  if (btnLogin) btnLogin.style.display = "inline-flex";
+  if (btnLogout) btnLogout.style.display = "none";
+
   showLoginModal();
 }
 
 /* ============================================================
- * 載入目前登入者資訊 (apiGetMe)
+ * 自動載入目前使用者
  * ============================================================ */
 
 async function loadCurrentUser() {
-  try {
-    const me = await apiGetMe();
-
-    // 顯示使用者名稱
-    const nameBox = document.getElementById("currentUserDisplay");
-    if (nameBox) nameBox.innerText = `${me.username} (${me.role})`;
-
-    // 控制 admin 相關按鈕
-    toggleAdminFeatures(me.role === "admin");
-
-  } catch (err) {
-    // 如果 token 失效 → 自動跳登入
-    console.warn("未登入或 token 過期，自動跳出登入");
-    showLoginModal();
-  }
-}
-
-/* ============================================================
- * 控制後台管理 Tab
- * ============================================================ */
-
-function toggleAdminFeatures(isAdmin) {
-  const adminTab = document.querySelector('[data-tab="admin"]');
-  if (!adminTab) return;
-
-  if (isAdmin) {
-    adminTab.classList.remove("hidden");
-  } else {
-    adminTab.classList.add("hidden");
-  }
-}
-
-/* ============================================================
- * 初始載入
- * ============================================================ */
-
-document.addEventListener("DOMContentLoaded", async () => {
   const token = localStorage.getItem("auth_token");
 
+  const display = document.getElementById("currentUserDisplay");
+  const btnLogin = document.getElementById("btnLogin");
+  const btnLogout = document.getElementById("btnLogout");
+
   if (!token) {
-    // 沒有 token → 強制登入
+    display.textContent = "未登入";
+    if (btnLogin) btnLogin.style.display = "inline-flex";
+    if (btnLogout) btnLogout.style.display = "none";
     showLoginModal();
     return;
   }
 
-  // token 存在 → 嘗試讀取使用者資訊
-  await loadCurrentUser();
-});
+  try {
+    const user = await apiGetMe();
+
+    const userText =
+      (user.full_name ? user.full_name : "") +
+      (user.username ? ` (${user.username})` : "");
+
+    display.textContent = userText || "使用者";
+
+    if (btnLogin) btnLogin.style.display = "none";
+    if (btnLogout) btnLogout.style.display = "inline-flex";
+
+  } catch (err) {
+    console.warn("Token 已失效，重新登入");
+
+    localStorage.removeItem("auth_token");
+    display.textContent = "未登入";
+
+    if (btnLogin) btnLogin.style.display = "inline-flex";
+    if (btnLogout) btnLogout.style.display = "none";
+
+    showLoginModal();
+    return;
+  }
+
+  const storedCustomerId = localStorage.getItem("current_customer_id");
+  window.currentCustomerId = storedCustomerId;
+
+  if (!storedCustomerId) {
+    await loadCustomerSelector();
+  }
+}
 
 /* ============================================================
- * 401 自動跳出登入（需要與 api-config.js 整合）
+ * 客戶選擇器（第一次登入必須選客戶）
  * ============================================================ */
 
-/**
- * 請在 api-config.js 的全域 api() 裡加入：
- *
- * if (response.status === 401) {
- *     localStorage.removeItem('auth_token');
- *     showLoginModal();
- *     throw new Error("未登入");
- * }
- *
- * 這樣所有 API 都會自動處理未登入狀態。
- */
+async function loadCustomerSelector() {
+  const list = await apiListCustomers({ page: 1, pageSize: 200 });
+
+  const select = document.getElementById("customerSelect");
+  select.innerHTML = `<option value="" disabled selected>請選擇客戶</option>`;
+
+  list.forEach(c => {
+    const opt = document.createElement("option");
+    opt.value = c.id;
+    opt.textContent = `${c.id} — ${c.customer_abbr || c.id}`;
+    select.appendChild(opt);
+  });
+
+  document.getElementById("customerSelectModal").showModal();
+}
+
+function confirmCustomerSelection() {
+  const value = document.getElementById("customerSelect").value;
+  if (!value) return;
+
+  localStorage.setItem("current_customer_id", value);
+  window.currentCustomerId = value;
+
+  document.getElementById("customerSelectModal").close();
+  location.reload(); // 切換客戶後重新載入頁面
+}
+
+/* ============================================================
+ * 全域掛載（最重要）
+ * ============================================================ */
+
+window.showLoginModal = showLoginModal;
+window.closeLogin = closeLogin;
+window.doLogin = doLogin;
+window.doLogout = doLogout;
+window.loadCurrentUser = loadCurrentUser;
+window.loadCustomerSelector = loadCustomerSelector;
+window.confirmCustomerSelection = confirmCustomerSelection;

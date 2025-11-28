@@ -20,7 +20,7 @@ from backend.app.models.replacement import (
 )
 
 router = APIRouter(
-    prefix="/logs/replacement",
+    prefix="/replacement",
     tags=["更換記錄 Replacement Logs"]
 )
 

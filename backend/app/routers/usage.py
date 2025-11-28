@@ -20,7 +20,7 @@ from backend.app.models.usage import (
 )
 
 router = APIRouter(
-    prefix="/logs/usage",
+    prefix="/usage",
     tags=["使用記錄 Usage Logs"]
 )
 

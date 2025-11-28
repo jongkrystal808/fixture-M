@@ -2,7 +2,7 @@
  * 負責人 Owners API (v3.0)
  * api-owners.js
  *
- * 後端 routers/owners.py：
+ * 後端 routers/owner.py：
  *
  * GET    /owners
  * GET    /owners/{id}

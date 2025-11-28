@@ -1,95 +1,46 @@
 /**
- * 退料 Returns API (v3.0)
- * api-returns.js
- *
- * ✔ 完全對應後端 v3.0 returns router
- * ✔ vendor 已移除
- * ✔ fixture_code → fixture_id
- * ✔ 支援 batch / individual
- * ✔ 分頁查詢 (skip / limit)
- * ✔ 匯入 returns/import
+ * api-returns.js (v3.1)
+ * 退料 API
+ * - 結構對齊 receipts
+ * - 匯出改用原生 fetch 避免 JSON 解析錯誤
  */
 
-// ======================================================
-// 列表查詢（分頁 + 搜尋）
-// ======================================================
-
-/**
- * 查詢退料列表
- * @param {Object} options
- * @param {number} [options.page=1]
- * @param {number} [options.pageSize=20]
- * @param {string} [options.fixtureId]
- * @param {string} [options.orderNo]
- * @param {string} [options.operator]
- */
-async function apiListReturns(options = {}) {
-  const {
-    page = 1,
-    pageSize = 20,
-    fixtureId = "",
-    orderNo = "",
-    operator = ""
-  } = options;
-
-  const params = new URLSearchParams();
-  params.set("skip", String((page - 1) * pageSize));
-  params.set("limit", String(pageSize));
-
-  if (fixtureId) params.set("fixture_id", fixtureId);
-  if (orderNo) params.set("order_no", orderNo);
-  if (operator) params.set("operator", operator);
-
-  return api("/returns?" + params.toString());
+async function apiListReturns(params = {}) {
+  const q = new URLSearchParams();
+  if (params.fixture_id) q.set("fixture_id", params.fixture_id);
+  if (params.order_no) q.set("order_no", params.order_no);
+  if (params.operator) q.set("operator", params.operator);
+  if (params.date_from) q.set("date_from", params.date_from);
+  if (params.date_to) q.set("date_to", params.date_to);
+  if (params.skip !== undefined) q.set("skip", String(params.skip));
+  if (params.limit !== undefined) q.set("limit", String(params.limit));
+  return api(`/returns?${q.toString()}`);
 }
 
-// ======================================================
-// 查詢單筆退料紀錄
-// ======================================================
-
-async function apiGetReturn(returnId) {
-  return api(`/returns/${encodeURIComponent(returnId)}`);
+async function apiGetReturn(id) {
+  return api(`/returns/${encodeURIComponent(id)}`);
 }
 
-// ======================================================
-// 新增退料（batch / individual）
-// ======================================================
-
-/**
- * 新增退料
- * @param {Object} data - ReturnCreate 格式
- * {
- *   type: "batch" | "individual",
- *   fixture_id: "L-00018",
- *   order_no: "",
- *   serial_start: "",
- *   serial_end: "",
- *   serials: "",
- *   operator: "",
- *   note: ""
- * }
- */
-async function apiCreateReturn(data) {
+async function apiCreateReturn(payload) {
   return api("/returns", {
     method: "POST",
-    body: JSON.stringify(data)
+    // 交給 api-config 自己 JSON.stringify
+    body: payload
   });
 }
 
-// ======================================================
-// 批量匯入退料（Excel → JSON → 後端）
-// ======================================================
-
-async function apiImportReturns(items) {
-  return api("/returns/import", {
+async function apiAddReturnDetails(returnId, serials) {
+  return api(`/returns/${encodeURIComponent(returnId)}/details`, {
     method: "POST",
-    body: JSON.stringify(items)
+    body: { serials }
   });
 }
 
-// ======================================================
-// 刪除退料紀錄
-// ======================================================
+async function apiDeleteReturnDetail(detailId) {
+  return api(`/returns/details/${encodeURIComponent(detailId)}`, {
+    method: "DELETE"
+  });
+}
 
 async function apiDeleteReturn(id) {
   return api(`/returns/${encodeURIComponent(id)}`, {
@@ -97,58 +48,64 @@ async function apiDeleteReturn(id) {
   });
 }
 
-// ======================================================
-// Excel 匯入 by .xlsx 檔案
-// ======================================================
+async function apiImportReturnsCsv(file) {
+  const form = new FormData();
+  form.append("file", file);
 
-async function apiImportReturnsXlsx(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
+  const token = localStorage.getItem("auth_token");
+  const customerId =
+    window.currentCustomerId || localStorage.getItem("current_customer_id");
 
-    reader.onload = async (e) => {
-      try {
-        const workbook = XLSX.read(e.target.result, { type: "binary" });
-        const sheet = workbook.Sheets[workbook.SheetNames[0]];
-        const rawRows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+  const headers = token ? { Authorization: `Bearer ${token}` } : {};
+  const url = new URL(apiURL("/returns/import"), window.location.origin);
+  if (customerId) url.searchParams.set("customer_id", customerId);
 
-        const items = rawRows.map(r => {
-          const type = (r.type || "batch").toLowerCase() === "individual"
-            ? "individual"
-            : "batch";
-
-          return {
-            type,
-            fixture_id: (r.fixture_id || "").trim(),
-            order_no: (r.order_no || "").trim() || null,
-            serial_start: type === "batch" ? (r.serial_start || "").trim() || null : null,
-            serial_end: type === "batch" ? (r.serial_end || "").trim() || null : null,
-            serials: type === "individual" ? (r.serials || "").trim() || null : null,
-            operator: (r.operator || "").trim() || null,
-            note: (r.note || "").trim() || null
-          };
-        });
-
-        // 呼叫後端批量匯入
-        const result = await apiImportReturns(items);
-        resolve(result);
-
-      } catch (err) {
-        reject(err);
-      }
-    };
-
-    reader.onerror = reject;
-    reader.readAsBinaryString(file);
+  const res = await fetch(url.toString(), {
+    method: "POST",
+    headers,
+    body: form
   });
+
+  if (!res.ok) {
+    const txt = await res.text();
+    throw new Error(`Import failed: ${res.status} ${txt}`);
+  }
+  return res.json();
 }
 
-// ======================================================
-// 導出到全域（給 app-returns.js 使用）
-// ======================================================
+// 🔥 匯出 CSV：改用原生 fetch，避免被 api() 嘗試 JSON.parse
+async function apiExportReturnCsv(returnId) {
+  const token = localStorage.getItem("auth_token");
+  const customerId =
+    window.currentCustomerId || localStorage.getItem("current_customer_id");
+
+  const headers = token ? { Authorization: `Bearer ${token}` } : {};
+  const url = new URL(
+    apiURL(`/returns/${encodeURIComponent(returnId)}/export`),
+    window.location.origin
+  );
+  if (customerId) url.searchParams.set("customer_id", customerId);
+
+  const res = await fetch(url.toString(), {
+    method: "GET",
+    headers
+  });
+
+  if (!res.ok) {
+    const txt = await res.text();
+    throw new Error(`Export failed: ${res.status} ${txt}`);
+  }
+
+  // 這裡回傳 blob，方便你在 app-returns.js 內組下載邏輯
+  const blob = await res.blob();
+  return blob;
+}
 
 window.apiListReturns = apiListReturns;
 window.apiGetReturn = apiGetReturn;
 window.apiCreateReturn = apiCreateReturn;
+window.apiAddReturnDetails = apiAddReturnDetails;
+window.apiDeleteReturnDetail = apiDeleteReturnDetail;
 window.apiDeleteReturn = apiDeleteReturn;
-window.apiImportReturns = apiImportReturns;
-window.apiImportReturnsXlsx = apiImportReturnsXlsx;
+window.apiImportReturnsCsv = apiImportReturnsCsv;
+window.apiExportReturnCsv = apiExportReturnCsv;

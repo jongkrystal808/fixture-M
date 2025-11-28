@@ -6,29 +6,7 @@
     <link rel="icon" href="/web/favicon.ico" type="image/x-icon">
   <title>治具管理系統</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <style>
-    button { border: 1px solid #D1D5DB; border-radius: 0.75rem; background:#fff; cursor:pointer; }
-    .card { background:#fff; border:1px solid #E5E7EB; border-radius:1rem; box-shadow:0 1px 2px rgba(0,0,0,0.04); }
-    .btn { display:inline-flex; align-items:center; gap:.5rem; padding:.5rem .75rem; font-size:.875rem; font-weight:500; line-height:1.25rem; }
-    .btn-primary { background:#111827; color:#fff; border-color:#111827; }
-    .btn-ghost { background:#fff; color:#111827; border-color:#D1D5DB; }
-    .pill { display:inline-block; font-size:.75rem; padding:.125rem .5rem; border-radius:9999px; border:1px solid #D1D5DB; }
-    .tab { display:inline-flex; align-items:center; gap:.5rem; padding:.5rem .75rem; font-size:.875rem; font-weight:500; line-height:1.25rem; background:#fff; border:1px solid #D1D5DB; border-radius:.75rem; transition:all .15s ease; }
-    .tab:hover { background:#F9FAFB; }
-    .tab-active { background:#111827; color:#fff; border-color:#111827; font-weight:700; box-shadow:0 0 0 2px rgba(17,24,39,0.25) inset; }
-    .section-title { font-size:1rem; font-weight:600; letter-spacing:.02em; }
-    .subtab { display:inline-flex; align-items:center; gap:.5rem; padding:.5rem .75rem; font-size:.875rem; font-weight:500; line-height:1.25rem; background:#fff; border:1px solid #D1D5DB; border-radius:.75rem; transition:all .15s ease; }
-    .subtab-active { background:#111827; color:#fff; border-color:#111827; font-weight:700; }
-    .field { display:flex; flex-direction:column; gap:.25rem; }
-    .label-xs { font-size:.75rem; color:#6B7280; }
-    .input { border:1px solid #D1D5DB; border-radius:.75rem; padding:.5rem .75rem; }
-    .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.35); display:none; align-items:center; justify-content:center; z-index:50; }
-    .modal { background:#fff; border-radius:1rem; width:100%; max-width:24rem; padding:1.25rem; border:1px solid #E5E7EB; }
-    .pagination button[disabled] { opacity:.5; cursor:not-allowed; }
-    .stat-card { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }
-    .warning-tag { background: #FEF3C7; color: #92400E; border: 1px solid #FCD34D; }
-    .danger-tag { background: #FEE2E2; color: #991B1B; border: 1px solid #FCA5A5; }
-  </style>
+  <link rel="stylesheet" href="/web/css/app-main.css">
 </head>
 
 <body class="bg-gray-50 text-gray-900">
@@ -166,7 +144,7 @@
         </div>
       </div>
     </section>
-    重寫
+
        <!-- 收料 / 退料 -->
     <section id="tab-receipts" class="hidden space-y-4">
 
@@ -391,11 +369,11 @@
               </div>
             </div>
 
-            <!-- 少量序號 -->
-            <div id="returnIndividualArea" class="hidden">
-              <label class="label-xs">序號（逗號分隔）</label>
-              <input id="returnAddSerials" class="input">
-            </div>
+                <!-- 少量序號 -->
+                <div id="returnIndividualArea" class="hidden">
+                  <label class="label-xs">序號（逗號分隔）</label>
+                  <input id="returnAddSerials" class="input">
+                </div>
 
             <div class="field">
               <label class="label-xs">備註</label>
@@ -450,16 +428,26 @@
         <!-- 🔹 治具查詢區 -->
         <!-- ============================= -->
         <div id="fixtureQueryArea" class="space-y-3">
-          <div class="flex gap-3">
-            <input id="fixtureSearch" class="input w-64" placeholder="輸入治具編號或名稱" oninput="loadFixturesQuery()" />
-            <select id="fixtureStatus" class="input w-40" onchange="loadFixturesQuery()">
-              <option value="">全部狀態</option>
-              <option value="正常">正常</option>
-              <option value="返還">返還</option>
-              <option value="報廢">報廢</option>
-            </select>
-            <button class="btn btn-primary" onclick="loadFixturesQuery()">查詢</button>
+          <div class="flex items-center gap-4 mb-4">
+          <div>
+            <span class="query-label">治具搜尋：</span>
+            <input id="fixtureSearch" class="query-input" placeholder="輸入治具編號 / 名稱" oninput="debounceLoadFixtures()">
           </div>
+
+          <div>
+            <span class="query-label">狀態：</span>
+            <select id="fixtureStatus" class="query-input" onchange="loadFixturesQuery()">
+              <option>全部</option>
+              <option>正常</option>
+              <option>維修中</option>
+              <option>報廢</option>
+            </select>
+          </div>
+
+          <button onclick="loadFixturesQuery()" class="btn btn-primary">搜尋</button>
+
+        </div>
+
 
           <div class="overflow-x-auto border rounded-lg shadow-sm">
             <table class="min-w-full text-sm text-center border-collapse">
@@ -678,7 +666,7 @@
           </div>
           <div class="field"><label class="label-xs">使用環境</label><input id="scrapEnv" class="input" placeholder="如:高溫/潮濕" /></div>
           <div class="field"><label class="label-xs">照片上傳</label><input id="scrapPhoto" type="file" accept="image/*" class="input text-xs" /></div>
-          <div class="flex items-end"><button class="btn btn-primary w-full" onclick="toast('已記錄報廢原因(模擬)')">提交</button></div>
+          <div class="flex items-end"><button class="btn btn-primary w-full" onclick="toast('已記錄報廢原因')">提交</button></div>
         </div>
         <div class="field">
           <label class="label-xs">詳細說明</label>
@@ -1522,6 +1510,8 @@
             <!-- ================================ -->
             <!-- 🔧 治具主檔 / 收料 / 退料           -->
             <!-- ================================ -->
+            <!-- 查詢 -->
+            <script src="/web/js/app/app-query.js"></script>
 
             <!-- 治具主檔 -->
             <script src="/web/js/api/api-fixtures.js"></script>

@@ -120,3 +120,90 @@ function exportCsvBlob(blob, filename) {
   a.click();
   URL.revokeObjectURL(url);
 }
+// /web/js/app/app-returns.js
+
+/**
+ * 切換退料：批量 / 少量序號 UI 顯示
+ */
+function handleReceiptTypeChange() {
+  const type = document.getElementById("receiptAddType").value;
+
+  const batchArea = document.getElementById("receiptBatchArea");
+  const individualArea = document.getElementById("receiptIndividualArea");
+
+  if (type === "batch") {
+    batchArea.classList.remove("hidden");
+    individualArea.classList.add("hidden");
+  } else {
+    batchArea.classList.add("hidden");
+    individualArea.classList.remove("hidden");
+  }
+}
+
+// 綁定事件
+document.getElementById("receiptAddType")
+  .addEventListener("change", handleReceiptTypeChange);
+
+// 讓 HTML onclick 可以呼叫（如果你之後有用到）
+window.handleReceiptTypeChange = handleReceiptTypeChange;
+window.downloadReceiptTemplate = downloadReceiptTemplate;
+
+
+/********************************************
+ * 收料：下載 Excel 範本
+ ********************************************/
+function downloadReceiptTemplate() {
+  const template = [
+    {
+      vendor: "MOXA",            // = customer_id
+      order_no: "PO123456",
+      fixture_id: "C-00010",
+      type: "batch",             // batch / individual
+      serial_start: 1,
+      serial_end: 10,
+      note: "示例備註"
+    }
+  ];
+
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.json_to_sheet(template);
+
+  XLSX.utils.book_append_sheet(wb, ws, "receipt_template");
+  XLSX.writeFile(wb, "receipt_template.xlsx");
+}
+
+window.downloadReceiptTemplate = downloadReceiptTemplate;
+
+
+/**
+ * 收料：匯入 Excel/CSV（使用後端 /receipts/import）
+ */
+async function handleReceiptImport(input) {
+  const file = input.files[0];
+  if (!file) {
+    alert("請選擇 Excel 或 CSV 檔案");
+    return;
+  }
+
+  try {
+    // 直接交給後端處理，不需要前端解析
+    const result = await apiImportReceiptsCsv(file);
+
+    console.log("匯入結果：", result);
+    alert(`匯入成功，共 ${result.count || 0} 筆記錄`);
+
+    // 重整畫面
+    if (typeof loadReceipts === "function") {
+      loadReceipts();
+    }
+
+  } catch (err) {
+    console.error("匯入失敗：", err);
+    alert(`匯入失敗：${err.message}`);
+  } finally {
+    // 清空 input，不然同一檔案不會觸發 onchange
+    input.value = "";
+  }
+}
+
+window.handleReceiptImport = handleReceiptImport;

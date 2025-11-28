@@ -1,17 +1,18 @@
 /* ============================================================
- * 查詢模塊（Query Module v3.6）
+ * Query Module v4.0（重構版）
  *
- * 功能：
- *  - 治具查詢（fixtures）
- *  - 機種查詢（models）
+ * 支援：
+ *  - 治具查詢 fixtures
+ *  - 機種查詢 models
  *  - 分頁
- *  - 治具詳細頁 Drawer
- *  - 機種詳細頁 Drawer
+ *  - Drawer 詳細資訊
+ *  - 舊版 queryType UI
+ *  - 防呆與錯誤保護
  * ============================================================ */
 
 
 /* ============================================================
- * 工具：通用分頁
+ * 工具：分頁元件
  * ============================================================ */
 function renderPagination(targetId, total, page, pageSize, onClick) {
   const box = document.getElementById(targetId);
@@ -33,60 +34,92 @@ function renderPagination(targetId, total, page, pageSize, onClick) {
 
 
 /* ============================================================
- * 🔵 治具查詢（Fixtures）
+ * 🔵 治具查詢 Fixtures
  * ============================================================ */
+
 let fixtureQueryPage = 1;
 const fixtureQueryPageSize = 20;
 
+/* 🔥 debounce（避免打字時轟 API） */
+let fixturesQueryTimer = null;
+function debounceLoadFixtures() {
+  clearTimeout(fixturesQueryTimer);
+  fixturesQueryTimer = setTimeout(loadFixturesQuery, 300);
+}
+
 async function loadFixturesQuery() {
-  const search = document.getElementById("fixtureQueryInput").value.trim();
-  const status = document.getElementById("fixtureQueryStatus")?.value;
+  const searchEl = document.getElementById("fixtureSearch");
+  const statusEl = document.getElementById("fixtureStatus");
+  const tbody = document.getElementById("fixtureTable");
+
+  if (!searchEl || !statusEl || !tbody) {
+    console.warn("Query UI elements not loaded");
+    return;
+  }
+
+  const keyword = searchEl.value.trim();
+  const status = statusEl.value;
 
   const params = {
     skip: (fixtureQueryPage - 1) * fixtureQueryPageSize,
     limit: fixtureQueryPageSize
   };
 
-  if (search) params.search = search;
-  if (status) params.status = status;
+  if (keyword) params.search = keyword;
+  if (status && status !== "全部") params.status = status; // ✔ FIX：status_filter → status
 
-  const data = await apiListFixtures(params);
+  try {
+    const data = await apiListFixtures(params);
 
-  renderFixturesTable(data.items);
-  renderPagination(
-    "fixtureQueryPagination",
-    data.total,
-    fixtureQueryPage,
-    fixtureQueryPageSize,
-    (p) => {
-      fixtureQueryPage = p;
-      loadFixturesQuery();
-    }
-  );
+    renderFixturesTable(data.fixtures);
+    renderPagination(
+      "fixturePagination",
+      data.total,
+      fixtureQueryPage,
+      fixtureQueryPageSize,
+      (p) => {
+        fixtureQueryPage = p;
+        loadFixturesQuery();
+      }
+    );
+
+  } catch (err) {
+    console.error("loadFixturesQuery error:", err);
+  }
 }
 
+
 function renderFixturesTable(rows) {
-  const tbody = document.getElementById("fixtureQueryTable");
+  const tbody = document.getElementById("fixtureTable");
+  if (!tbody) return;
+
   tbody.innerHTML = "";
 
   if (!rows || rows.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="6" class="text-center text-gray-400 py-3">沒有資料</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="9" class="text-center text-gray-400 py-3">沒有資料</td></tr>`;
     return;
   }
 
   rows.forEach(f => {
     const tr = document.createElement("tr");
     tr.innerHTML = `
-      <td class="py-2 pr-4">${f.id}</td>
-      <td class="py-2 pr-4">${f.model_id || ""}</td>
-      <td class="py-2 pr-4">${f.station_id || ""}</td>
-      <td class="py-2 pr-4">${f.status || ""}</td>
-      <td class="py-2 pr-4">${f.updated_at || ""}</td>
-      <td class="py-2 pr-4">
-        <button class="btn btn-ghost text-xs" onclick="openFixtureDetail('${f.id}')">
-          查看
-        </button>
+      <td class="py-2 px-4">${f.fixture_id}</td>
+      <td class="py-2 px-4">${f.fixture_name || ""}</td>
+      <td class="py-2 px-4">${f.customer_id || ""}</td>
+      <td class="py-2 px-4">${f.fixture_type || "-"}</td>
+
+      <td class="py-2 px-4">
+        ${f.self_purchased_qty || 0}
+        /
+        ${f.customer_supplied_qty || 0}
+        /
+        ${f.available_qty || 0}
       </td>
+
+      <td class="py-2 px-4">${f.status || ""}</td>
+      <td class="py-2 px-4">${f.storage_location || "-"}</td>
+      <td class="py-2 px-4">${f.owner_name || "-"}</td>
+      <td class="py-2 px-4">${f.note || ""}</td>
     `;
     tbody.appendChild(tr);
   });
@@ -94,18 +127,19 @@ function renderFixturesTable(rows) {
 
 
 /* ============================================================
- * 🔶 Fixture Detail Drawer（治具詳細頁）
+ * 🔶 Fixture Detail Drawer
  * ============================================================ */
 
 function closeFixtureDetail() {
   document.getElementById("fixtureDetailDrawer")
-    .classList.add("translate-x-full");
+    ?.classList.add("translate-x-full");
 }
 
 async function openFixtureDetail(fixtureId) {
   const drawer = document.getElementById("fixtureDetailDrawer");
   const box = document.getElementById("fixtureDetailContent");
 
+  if (!drawer || !box) return;
   drawer.classList.remove("translate-x-full");
   box.innerHTML = `<div class="p-3 text-gray-400">載入中...</div>`;
 
@@ -143,18 +177,9 @@ async function openFixtureDetail(fixtureId) {
         <h3 class="font-semibold text-lg mb-2">更換紀錄</h3>
         ${renderReplacementLogs(data.replacement_logs)}
       </section>
-
-      <section>
-        <h3 class="font-semibold text-lg mb-2">更多操作</h3>
-        <div class="flex gap-2 flex-wrap">
-          <button class="btn btn-outline" onclick="gotoReceipts('${fixtureId}')">收料紀錄</button>
-          <button class="btn btn-outline" onclick="gotoReturns('${fixtureId}')">退料紀錄</button>
-          <button class="btn btn-outline" onclick="gotoUsageLogs('${fixtureId}')">使用紀錄</button>
-          <button class="btn btn-outline" onclick="gotoReplacementLogs('${fixtureId}')">更換紀錄</button>
-        </div>
-      </section>
     `;
   } catch (err) {
+    console.error(err);
     box.innerHTML = `<div class="text-red-500">讀取資料失敗</div>`;
   }
 }
@@ -164,109 +189,56 @@ function formatTrans(t) {
   return `${t.transaction_date || ""} / ${t.order_no || ""} / ${t.operator || ""}`;
 }
 
-function renderUsageLogs(rows) {
-  if (!rows || rows.length === 0)
-    return `<div class="text-gray-400 text-sm">無紀錄</div>`;
-
-  return `
-    <table class="min-w-full text-sm border">
-      <thead><tr>
-        <th class="p-1">時間</th>
-        <th class="p-1">站點</th>
-        <th class="p-1">人員</th>
-        <th class="p-1">備註</th>
-      </tr></thead>
-      <tbody>
-        ${rows.map(r => `
-          <tr>
-            <td class="p-1">${r.used_at || "-"}</td>
-            <td class="p-1">${r.station_id || "-"}</td>
-            <td class="p-1">${r.operator || "-"}</td>
-            <td class="p-1">${r.note || "-"}</td>
-          </tr>
-        `).join("")}
-      </tbody>
-    </table>
-  `;
-}
-
-function renderReplacementLogs(rows) {
-  if (!rows || rows.length === 0)
-    return `<div class="text-gray-400 text-sm">無紀錄</div>`;
-
-  return `
-    <table class="min-w-full text-sm border">
-      <thead><tr>
-        <th class="p-1">時間</th>
-        <th class="p-1">舊序號</th>
-        <th class="p-1">新序號</th>
-        <th class="p-1">人員</th>
-        <th class="p-1">備註</th>
-      </tr></thead>
-      <tbody>
-        ${rows.map(r => `
-          <tr>
-            <td class="p-1">${r.replaced_at || "-"}</td>
-            <td class="p-1">${r.old_serial || "-"}</td>
-            <td class="p-1">${r.new_serial || "-"}</td>
-            <td class="p-1">${r.operator || "-"}</td>
-            <td class="p-1">${r.note || "-"}</td>
-          </tr>
-        `).join("")}
-      </tbody>
-    </table>
-  `;
-}
-
 
 /* ============================================================
- * 🟩 機種查詢（Models）
+ * 🟩 機種查詢 Models
  * ============================================================ */
+
 let modelQueryPage = 1;
 const modelQueryPageSize = 20;
 
 async function loadModelsQuery() {
-  const search = document.getElementById("modelQueryInput").value.trim();
+  const customerId = localStorage.getItem("current_customer");
+  if (!customerId) return;  // 尚未選擇客戶不查
 
-  const params = {
-    skip: (modelQueryPage - 1) * modelQueryPageSize,
-    limit: modelQueryPageSize,
-    search
-  };
+  try {
+    const keyword = document.getElementById("modelSearch")?.value.trim() || "";
 
-  const data = await apiListMachineModels(params);
+    // 使用正確的後端 API： /models
+    const result = await apiListMachineModels({
+      search: keyword,
+      customer_id: customerId,
+      skip: 0,
+      limit: 200
+    });
 
-  renderModelsQueryTable(data.items);
-  renderPagination(
-    "modelQueryPagination",
-    data.total,
-    modelQueryPage,
-    modelQueryPageSize,
-    (p) => {
-      modelQueryPage = p;
-      loadModelsQuery();
-    }
-  );
+    // 後端回傳的是「純 array」
+    renderModelsQueryTable(result);
+
+  } catch (err) {
+    console.error("loadModelsQuery() error:", err);
+    renderModelsQueryTable([]);
+  }
 }
+window.loadModelsQuery = loadModelsQuery;
 
-function renderModelsQueryTable(rows) {
-  const tbody = document.getElementById("modelQueryTable");
+
+function renderModelsQueryTable(list) {
+  const tbody = document.getElementById("modelTable");
+  if (!tbody) return;
+
   tbody.innerHTML = "";
 
-  if (!rows || rows.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="4" class="text-center text-gray-400 py-3">沒有資料</td></tr>`;
-    return;
-  }
-
-  rows.forEach(m => {
+  list.forEach(m => {
     const tr = document.createElement("tr");
     tr.innerHTML = `
-      <td class="py-2 pr-4">${m.id}</td>
-      <td class="py-2 pr-4">${m.model_name || ""}</td>
-      <td class="py-2 pr-4">${m.note || ""}</td>
-      <td class="py-2 pr-4">
-        <button class="btn btn-ghost text-xs" onclick="openModelDetail('${m.id}')">
-          查看
+      <td class="py-2 px-4">${m.id}</td>
+      <td class="py-2 px-4">${m.model_name || ""}</td>
+      <td class="py-2 px-4">${m.customer_id || ""}</td>
+      <td class="py-2 px-4">${m.note || ""}</td>
+      <td class="py-2 px-4">
+        <button class="text-indigo-600 underline" onclick="openModelDetail('${m.id}')">
+          詳情
         </button>
       </td>
     `;
@@ -275,191 +247,46 @@ function renderModelsQueryTable(rows) {
 }
 
 
+
 /* ============================================================
- * 🟨 Model Detail Drawer（機種詳細頁）
+ * 最終版：queryType 切換（新版 + 舊版 UI 都兼容）
  * ============================================================ */
+function switchQueryType() {
+  const type = document.getElementById("queryType")?.value;
+  if (!type) return;
 
-function closeModelDetail() {
-  document.getElementById("modelDetailDrawer")
-    .classList.add("translate-x-full");
-}
+  // ================================
+  // 🔵 新版 UI （你實際使用的）
+  // ================================
+  const fixtureArea = document.getElementById("fixtureQueryArea");
+  const modelArea   = document.getElementById("modelQueryArea");
 
-async function openModelDetail(modelId) {
-  const drawer = document.getElementById("modelDetailDrawer");
-  const box = document.getElementById("modelDetailContent");
+  if (fixtureArea && modelArea) {
+    if (type === "fixture") {
+      fixtureArea.classList.remove("hidden");
+      modelArea.classList.add("hidden");
+      loadFixturesQuery();     // 重要：切到治具 → 立即查詢
+    } else {
+      modelArea.classList.remove("hidden");
+      fixtureArea.classList.add("hidden");
+      loadModelsQuery();       // 切到機種 → 立即查詢
+    }
+  }
 
-  drawer.classList.remove("translate-x-full");
-  box.innerHTML = `<div class="p-3 text-gray-400">讀取中...</div>`;
+  // ================================
+  // 🟠 舊版 UI（你貼出的 qtab-xxx）
+  // ================================
+  const oldFixture = document.getElementById("qtab-fixtures");
+  const oldModel   = document.getElementById("qtab-models");
 
-  try {
-    const data = await apiGetModelDetail(modelId);
+  if (oldFixture && oldModel) {
+    oldFixture.classList.add("hidden");
+    oldModel.classList.add("hidden");
 
-    const m = data.model;
-    const stations = data.stations;
-    const reqs = data.fixture_requirements;
-    const fixtures = data.fixtures;
-    const summary = data.status_summary;
-
-    box.innerHTML = `
-      <section>
-        <h3 class="font-semibold text-lg mb-2">基本資料</h3>
-        <div class="grid grid-cols-2 gap-3 text-sm">
-          <div><strong>機種代碼：</strong>${m.id}</div>
-          <div><strong>名稱：</strong>${m.model_name || "-"}</div>
-          <div><strong>備註：</strong>${m.note || "-"}</div>
-          <div><strong>建立時間：</strong>${m.created_at || "-"}</div>
-        </div>
-      </section>
-
-      <section>
-        <h3 class="font-semibold text-lg mb-2">綁定站點</h3>
-        ${renderModelStationsTable(stations)}
-      </section>
-
-      <section>
-        <h3 class="font-semibold text-lg mb-2">治具需求</h3>
-        ${renderFixtureReqTable(reqs)}
-      </section>
-
-      <section>
-        <h3 class="font-semibold text-lg mb-2">旗下治具</h3>
-        ${renderModelFixturesTable(fixtures)}
-      </section>
-
-      <section>
-        <h3 class="font-semibold text-lg mb-2">治具狀態統計</h3>
-        ${renderStatusSummary(summary)}
-      </section>
-    `;
-  } catch (err) {
-    box.innerHTML = `<div class="text-red-500">讀取資料失敗</div>`;
+    const showEl = document.getElementById(`qtab-${type}`);
+    if (showEl) showEl.classList.remove("hidden");
   }
 }
-
-/* 渲染：機種綁定站點 */
-function renderModelStationsTable(rows) {
-  if (!rows || rows.length === 0)
-    return `<div class="text-gray-400 text-sm">未綁定站點</div>`;
-
-  return `
-    <table class="min-w-full text-sm">
-      <thead><tr>
-        <th class="py-1 pr-3">站點編號</th>
-        <th class="py-1 pr-3">站點名稱</th>
-      </tr></thead>
-      <tbody>
-        ${rows.map(r => `
-          <tr>
-            <td>${r.station_id}</td>
-            <td>${r.station_name}</td>
-          </tr>
-        `).join("")}
-      </tbody>
-    </table>
-  `;
-}
-
-/* 渲染：治具需求 */
-function renderFixtureReqTable(rows) {
-  if (!rows || rows.length === 0)
-    return `<div class="text-gray-400 text-sm">無需求設定</div>`;
-
-  return `
-    <table class="min-w-full text-sm">
-      <thead><tr>
-        <th class="py-1 pr-3">站點</th>
-        <th class="py-1 pr-3">治具</th>
-        <th class="py-1 pr-3">需求數</th>
-        <th class="py-1 pr-3">備註</th>
-      </tr></thead>
-      <tbody>
-        ${rows.map(r => `
-          <tr>
-            <td>${r.station_id} - ${r.station_name}</td>
-            <td>${r.fixture_id}</td>
-            <td>${r.required_qty}</td>
-            <td>${r.note || ""}</td>
-          </tr>
-        `).join("")}
-      </tbody>
-    </table>
-  `;
-}
-
-/* 渲染：機種旗下治具 */
-function renderModelFixturesTable(rows) {
-  if (!rows || rows.length === 0)
-    return `<div class="text-gray-400 text-sm">無治具</div>`;
-
-  return `
-    <table class="min-w-full text-sm">
-      <thead><tr>
-        <th class="py-1 pr-3">治具</th>
-        <th class="py-1 pr-3">狀態</th>
-        <th class="py-1 pr-3">站點</th>
-        <th class="py-1 pr-3">負責人</th>
-        <th class="py-1 pr-3">更新時間</th>
-      </tr></thead>
-      <tbody>
-        ${rows.map(r => `
-          <tr>
-            <td>${r.fixture_id}</td>
-            <td>${r.status}</td>
-            <td>${r.station_id || "-"}</td>
-            <td>${r.owner_id || "-"}</td>
-            <td>${r.updated_at || "-"}</td>
-          </tr>
-        `).join("")}
-      </tbody>
-    </table>
-  `;
-}
-
-/* 渲染：狀態統計 */
-function renderStatusSummary(map) {
-  const keys = Object.keys(map || {});
-  if (keys.length === 0)
-    return `<div class="text-gray-400 text-sm">無統計資料</div>`;
-
-  return `
-    <ul class="list-disc pl-4 text-sm">
-      ${keys.map(st => `<li>${st}：${map[st]} 個</li>`).join("")}
-    </ul>
-  `;
-}
+window.switchQueryType = switchQueryType;
 
 
-/* ============================================================
- * 🔁 跳轉：從詳細頁跳轉到收料/退料/使用/更換紀錄
- * ============================================================ */
-function gotoReceipts(fixtureId) {
-  location.hash = "receipts";
-  setTimeout(() => {
-    document.getElementById("receiptSearchFixture").value = fixtureId;
-    loadReceipts();
-  }, 200);
-}
-
-function gotoReturns(fixtureId) {
-  location.hash = "returns";
-  setTimeout(() => {
-    document.getElementById("returnSearchFixture").value = fixtureId;
-    loadReturns();
-  }, 200);
-}
-
-function gotoUsageLogs(fixtureId) {
-  location.hash = "logs";
-  setTimeout(() => {
-    document.getElementById("usageSearchFixture").value = fixtureId;
-    loadUsageLogs();
-  }, 200);
-}
-
-function gotoReplacementLogs(fixtureId) {
-  location.hash = "logs";
-  setTimeout(() => {
-    document.getElementById("replacementSearchFixture").value = fixtureId;
-    loadReplacementLogs();
-  }, 200);
-}

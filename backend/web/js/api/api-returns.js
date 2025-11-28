@@ -101,6 +101,35 @@ async function apiExportReturnCsv(returnId) {
   return blob;
 }
 
+
+
+async function apiImportReturnCsv(file) {
+  const form = new FormData();
+  form.append("file", file);
+
+  const token = localStorage.getItem("auth_token");
+  const customerId = window.currentCustomerId || localStorage.getItem("current_customer_id");
+
+  const headers = token ? { "Authorization": `Bearer ${token}` } : {};
+
+  const url = new URL(apiURL("/returns/import"), window.location.origin);
+  if (customerId) url.searchParams.set("customer_id", customerId);
+
+  const res = await fetch(url.toString(), {
+    method: "POST",
+    headers,
+    body: form
+  });
+
+  if (!res.ok) {
+    const txt = await res.text();
+    throw new Error(`Import failed: ${res.status} ${txt}`);
+  }
+
+  return res.json();
+}
+
+window.apiImportReturnCsv = apiImportReturnCsv;
 window.apiListReturns = apiListReturns;
 window.apiGetReturn = apiGetReturn;
 window.apiCreateReturn = apiCreateReturn;

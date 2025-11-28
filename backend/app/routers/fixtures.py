@@ -159,54 +159,65 @@ async def get_fixture(
 
 
 # ============================================================
-# 查詢治具列表 (LIST)
+# 查詢治具列表 (LIST) - Release / 非 Debug 版本
+# 路徑：backend/app/routers/fixtures.py
 # ============================================================
 
-@router.get("", response_model=FixtureListResponse, summary="查詢治具列表")
+@router.get("", summary="查詢治具列表")
 async def list_fixtures(
-    customer_id: str = Query(..., description="客戶 ID"),
+    customer_id: str = Query(...),
     skip: int = Query(0, ge=0),
-    limit: int = Query(50, ge=1, le=500),
-    status_filter: Optional[FixtureStatus] = None,
-    owner_id: Optional[int] = None,
-    search: Optional[str] = None
+    limit: int = Query(8, ge=1, le=200),
+
+    search: Optional[str] = Query(None),
+    status_filter: Optional[str] = Query(None),
+    owner_id: Optional[int] = Query(None),
+
+    current_user: dict = Depends(get_current_user)
 ):
     try:
+        # -----------------------------
+        #   組 WHERE 條件
+        # -----------------------------
         where = ["f.customer_id = %s"]
         params = [customer_id]
 
+        if search:
+            like = f"%{search}%"
+            where.append("(f.id LIKE %s OR f.fixture_name LIKE %s)")
+            params.extend([like, like])
+
         if status_filter:
             where.append("f.status = %s")
-            params.append(
-                status_filter.value if isinstance(status_filter, FixtureStatus) else status_filter
-            )
+            params.append(status_filter)
 
         if owner_id:
             where.append("f.owner_id = %s")
             params.append(owner_id)
 
-        if search:
-            where.append("(f.id LIKE %s OR f.fixture_name LIKE %s)")
-            like = f"%{search}%"
-            params.extend([like, like])
-
         where_sql = " AND ".join(where)
 
-        # 查詢總數
+        # -----------------------------
+        #   查詢總筆數
+        # -----------------------------
         count_sql = f"""
             SELECT COUNT(*) AS total
             FROM fixtures f
             WHERE {where_sql}
         """
-        total = db.execute_query(count_sql, tuple(params))[0]["total"]
+        total_row = db.execute_query(count_sql, tuple(params))
+        total = total_row[0]["total"]
 
-        # 查詢列表
+        # -----------------------------
+        #   查詢資料列
+        # -----------------------------
         list_sql = f"""
             SELECT
                 f.id AS fixture_id,
                 f.customer_id,
                 f.fixture_name,
                 f.fixture_type,
+
                 f.self_purchased_qty,
                 f.customer_supplied_qty,
                 f.available_qty,
@@ -214,35 +225,37 @@ async def list_fixtures(
                 f.maintenance_qty,
                 f.scrapped_qty,
                 f.returned_qty,
+
                 f.storage_location,
                 f.replacement_cycle,
                 f.cycle_unit,
+
                 f.status,
                 f.owner_id,
                 f.note,
                 f.created_at,
                 f.updated_at,
+
                 o.primary_owner AS owner_name,
                 o.email AS owner_email
+
             FROM fixtures f
             LEFT JOIN owners o ON f.owner_id = o.id
             WHERE {where_sql}
-            ORDER BY f.created_at DESC
+            ORDER BY f.id
             LIMIT %s OFFSET %s
         """
 
         final_params = params + [limit, skip]
         rows = db.execute_query(list_sql, tuple(final_params))
 
-        return FixtureListResponse(
-            total=total,
-            fixtures=[FixtureResponse(**row) for row in rows]
-        )
+        return {
+            "total": total,
+            "fixtures": rows
+        }
 
     except Exception as e:
-        print("❌ [list_fixtures] ERROR:\n", traceback.format_exc())
-        raise HTTPException(status_code=500, detail=f"查詢治具列表失敗: {repr(e)}")
-
+        raise HTTPException(500, f"查詢治具列表失敗: {e}")
 
 # ============================================================
 # 更新治具 (UPDATE)

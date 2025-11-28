@@ -12,7 +12,7 @@ Stations API (Aligned with DB v3.0 Schema)
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from typing import Optional, List
 from pydantic import BaseModel
-
+from datetime import datetime
 from backend.app.dependencies import get_current_admin, get_current_user
 from backend.app.database import db
 
@@ -43,7 +43,7 @@ class StationUpdate(BaseModel):
 
 
 class StationResponse(StationBase):
-    created_at: Optional[str] = None
+    created_at: Optional[datetime] = None
 
 
 # ============================================================

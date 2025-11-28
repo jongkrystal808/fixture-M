@@ -16,12 +16,16 @@
 async function apiListMachineModels(params = {}) {
   const q = new URLSearchParams();
 
-  if (params.search) q.set("search", params.search);
+  // ❗必須帶 customer_id
+  if (params.customer_id) q.set("customer_id", params.customer_id);
+
+  if (params.search) q.set("q", params.search);   // 後端是 q，不是 search
   if (params.skip !== undefined) q.set("skip", params.skip);
   if (params.limit !== undefined) q.set("limit", params.limit);
 
   return api(`/models?${q.toString()}`);
 }
+
 
 /* ============================================================
  * 🔵 單一機種基本資料
@@ -31,10 +35,17 @@ async function apiGetMachineModel(modelId) {
 }
 
 /* ============================================================
- * 🔵 機種詳細資料（Model Detail Drawer 用） ← ★新功能
+ * 🔵 機種詳細資料（Model Detail Drawer 用） ← ★需要 customer_id
  * ============================================================ */
 async function apiGetModelDetail(modelId) {
-  return api(`/models/${encodeURIComponent(modelId)}/detail`);
+  const customerId = localStorage.getItem("current_customer_id");
+  if (!customerId) {
+    throw new Error("未選擇客戶，無法查詢機種詳情");
+  }
+
+  const qs = `customer_id=${encodeURIComponent(customerId)}`;
+
+  return api(`/models/${encodeURIComponent(modelId)}/detail?${qs}`);
 }
 
 /* ============================================================

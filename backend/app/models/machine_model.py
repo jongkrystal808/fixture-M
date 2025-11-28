@@ -7,7 +7,7 @@ Machine Model Data Models
 
 from typing import Optional
 from pydantic import BaseModel, Field
-
+from datetime import datetime
 
 # ============================================================
 # 基礎模型 (與資料庫欄位一一對應)
@@ -62,10 +62,7 @@ class MachineModelUpdate(BaseModel):
 # ============================================================
 
 class MachineModelResponse(MachineModelBase):
-    created_at: Optional[str] = Field(
-        None,
-        description="建立時間"
-    )
+    created_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True

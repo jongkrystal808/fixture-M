@@ -41,8 +41,10 @@ class ModelUpdate(BaseModel):
     note: Optional[str] = None
 
 
+from datetime import datetime
+
 class ModelResponse(ModelBase):
-    created_at: Optional[str] = None
+    created_at: Optional[datetime] = None
 
 
 # ============================================================
@@ -201,7 +203,6 @@ async def delete_model(
 
     return None
 
-
 # ============================================================
 # 取得機種完整詳細資料 (DETAIL)
 # ============================================================
@@ -213,91 +214,89 @@ async def get_model_detail(
         current_user=Depends(get_current_user)
 ):
     """
-    機種詳細頁：
-    - 基本資料
-    - 綁定站點 model_stations
-    - 治具需求 fixture_requirements
-    - 所有治具 fixtures (該 model 旗下)
-    - 治具狀態統計
+    Model Detail API (v3.0)
+    - 機種基本資料
+    - 已綁定站點 model_stations + stations
+    - 治具需求 fixture_requirements + fixtures
+    - 最大開站數 view_model_max_stations
     """
 
     # ---------------------------
     # 1) 機種基本資料
     # ---------------------------
     sql_model = """
-                SELECT id, customer_id, model_name, note, created_at
-                FROM machine_models
-                WHERE id = %s \
-                  AND customer_id = %s LIMIT 1 \
-                """
-    res = db.execute_query(sql_model, (model_id, customer_id))
-    if not res:
-        raise HTTPException(status_code=404, detail="機種不存在")
-
-    model = res[0]
+        SELECT id, customer_id, model_name, note, created_at
+        FROM machine_models
+        WHERE id = %s AND customer_id = %s
+        LIMIT 1
+    """
+    rows = db.execute_query(sql_model, (model_id, customer_id))
+    if not rows:
+        raise HTTPException(404, "機種不存在")
+    model = rows[0]
 
     # ---------------------------
-    # 2) 綁定站點
+    # 2) 已綁定站點（JOIN stations）
     # ---------------------------
     sql_stations = """
-                   SELECT ms.station_id, s.station_name
-                   FROM model_stations ms
-                            JOIN stations s ON ms.station_id = s.station_id
-                   WHERE ms.model_id = %s \
-                     AND ms.customer_id = %s
-                   ORDER BY ms.station_id \
-                   """
+        SELECT 
+            ms.station_id,
+            s.station_name
+        FROM model_stations ms
+        JOIN stations s 
+          ON ms.station_id = s.id        -- 正確欄位：stations.id
+        WHERE ms.model_id = %s
+          AND ms.customer_id = %s
+        ORDER BY ms.station_id
+    """
     stations = db.execute_query(sql_stations, (model_id, customer_id))
 
     # ---------------------------
-    # 3) 治具需求 fixture_requirements
+    # 3) 治具需求 fixture_requirements + fixtures
     # ---------------------------
     sql_requirements = """
-                       SELECT fr.id, \
-                              fr.station_id, \
-                              s.station_name, \
-                              fr.fixture_id, \
-                              fr.required_qty, \
-                              fr.note
-                       FROM fixture_requirements fr
-                                JOIN stations s ON fr.station_id = s.station_id
-                       WHERE fr.model_id = %s \
-                         AND fr.customer_id = %s
-                       ORDER BY fr.station_id \
-                       """
-    fixture_requirements = db.execute_query(sql_requirements, (model_id, customer_id))
+        SELECT 
+            fr.id,
+            fr.station_id,
+            s.station_name,
+            fr.fixture_id,
+            f.fixture_name,
+            fr.required_qty,
+            f.available_qty,
+            fr.note
+        FROM fixture_requirements fr
+        JOIN stations s 
+          ON fr.station_id = s.id
+        JOIN fixtures f
+          ON fr.fixture_id = f.id
+        WHERE fr.model_id = %s
+          AND fr.customer_id = %s
+        ORDER BY fr.station_id, fr.fixture_id
+    """
+    requirements = db.execute_query(sql_requirements, (model_id, customer_id))
 
     # ---------------------------
-    # 4) 所有治具 (屬於該 model)
+    # 4) 最大開站數（view_model_max_stations）
     # ---------------------------
-    sql_fixtures = """
-                   SELECT id AS fixture_id, \
-                          status, \
-                          station_id, \
-                          owner_id, \
-                          updated_at
-                   FROM fixtures
-                   WHERE model_id = %s \
-                     AND customer_id = %s
-                   ORDER BY id \
-                   """
-    fixtures = db.execute_query(sql_fixtures, (model_id, customer_id))
+    sql_max = """
+        SELECT 
+            station_id,
+            station_name,
+            max_available_stations,
+            limiting_fixtures
+        FROM view_model_max_stations
+        WHERE model_id = %s
+          AND customer_id = %s
+        ORDER BY station_id
+    """
+    max_stations = db.execute_query(sql_max, (model_id, customer_id))
 
     # ---------------------------
-    # 5) 整理治具狀態統計
-    # ---------------------------
-    status_count = {}
-    for f in fixtures:
-        st = f["status"] or "unknown"
-        status_count[st] = status_count.get(st, 0) + 1
-
-    # ---------------------------
-    # 6) 回傳
+    # 回傳格式（完全符合前端需求）
     # ---------------------------
     return {
         "model": model,
         "stations": stations,
-        "fixture_requirements": fixture_requirements,
-        "fixtures": fixtures,
-        "status_summary": status_count
+        "requirements": requirements,
+        "max_stations": max_stations,
     }

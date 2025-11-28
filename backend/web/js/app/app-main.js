@@ -1,6 +1,4 @@
-// /web/js/app/app-main.js
 // 簡易 hash router + 頁籤切換
-
 
 (function () {
   const TAB_CONFIG = {
@@ -38,7 +36,7 @@
 
   const bannerTitle = document.getElementById("activeTabTitle");
   let currentTab = null;
-  const loadedFlags = {}; // 每個頁面只載一次資料
+  const loadedFlags = {}; // 每個頁面只載入一次資料
 
   function normalizeHash(hash) {
     if (!hash) return "dashboard";
@@ -57,7 +55,7 @@
 
     currentTab = tabKey;
 
-    // 1) 切換 main section 顯示/隱藏
+    // 1) 切 main section
     Object.keys(TAB_CONFIG).forEach(key => {
       const sec = sections[key];
       if (!sec) return;
@@ -68,7 +66,7 @@
       }
     });
 
-    // 2) 切換上方 tab 樣式
+    // 2) 切 tab 樣式
     tabButtons.forEach(btn => {
       const key = btn.dataset.tab;
       if (key === tabKey) {
@@ -78,57 +76,44 @@
       }
     });
 
-    // 3) 更新標題
+    // 3) 切換標題
     if (bannerTitle) {
       bannerTitle.textContent = TAB_CONFIG[tabKey].title;
     }
 
-    // 4) 更新 hash（如果需要）
-    if (options.updateHash) {
-      setHash(tabKey);
-    }
+    // 4) 更新 hash
+    if (options.updateHash) setHash(tabKey);
 
-    // 5) 第一次進入該頁時，自動載入資料（如果有對應函數）
+    // 5) 第一次進入該頁 → 載資料
     if (!loadedFlags[tabKey]) {
       loadedFlags[tabKey] = true;
+
       try {
         switch (tabKey) {
           case "dashboard":
-            if (typeof window.loadDashboard === "function") {
-              window.loadDashboard();
-            }
+            if (typeof window.loadDashboard === "function") window.loadDashboard();
             break;
+
           case "receipts":
-            if (typeof window.loadReceipts === "function") {
-              window.loadReceipts();
-            }
+            if (typeof window.loadReceipts === "function") window.loadReceipts();
             break;
+
           case "query":
-            if (typeof window.loadFixturesQuery === "function") {
-              window.loadFixturesQuery();
-            }
+            if (typeof window.loadFixturesQuery === "function") window.loadFixturesQuery();
             break;
+
           case "logs":
-            if (typeof window.loadUsageLogs === "function") {
-              window.loadUsageLogs();
-            }
-            if (typeof window.loadReplacementLogs === "function") {
-              window.loadReplacementLogs();
-            }
+            if (typeof window.loadUsageLogs === "function") window.loadUsageLogs();
+            if (typeof window.loadReplacementLogs === "function") window.loadReplacementLogs();
             break;
+
           case "stats":
-            if (typeof window.loadStats === "function") {
-              window.loadStats();
-            }
+            if (typeof window.loadStats === "function") window.loadStats();
             break;
+
           case "admin":
-            // 這邊通常會有使用者 / 客戶等管理
-            if (typeof window.loadUsers === "function") {
-              window.loadUsers();
-            }
-            if (typeof window.loadCustomers === "function") {
-              window.loadCustomers();
-            }
+            if (typeof window.loadUsers === "function") window.loadUsers();
+            if (typeof window.loadCustomers === "function") window.loadCustomers();
             break;
         }
       } catch (e) {
@@ -137,7 +122,7 @@
     }
   }
 
-  // 監聽上方 tab 按鈕
+  // 監聽 tab 按鈕
   tabButtons.forEach(btn => {
     btn.addEventListener("click", () => {
       const tabKey = btn.dataset.tab;
@@ -147,23 +132,24 @@
     });
   });
 
-  // hash 改變時（例如手動改網址、瀏覽器返回）
+  // 監聽 hash 改變
   window.addEventListener("hashchange", () => {
     const tabKey = normalizeHash(location.hash);
     showTab(tabKey, { updateHash: false });
   });
 
-  // 頁面載入初始化
+  // DOM Ready
   window.addEventListener("DOMContentLoaded", async () => {
-    // 先處理登入 & 客戶選擇
+    // (1) 先載入登入資訊
     if (typeof window.loadCurrentUser === "function") {
       await window.loadCurrentUser();
     }
 
+    // (2) 啟動頁籤
     const initialTab = normalizeHash(location.hash);
     showTab(initialTab, { updateHash: true });
 
-    // 收料 / 退料 子分頁切換（沿用你原本 data-rtab 設計）
+    // (3) 收料 / 退料子分頁
     const rtabButtons = document.querySelectorAll("[data-rtab]");
     rtabButtons.forEach(btn => {
       btn.addEventListener("click", () => {
@@ -173,11 +159,13 @@
         const tab = btn.dataset.rtab;
         document.querySelectorAll("#rtab-receipts, #rtab-returns")
           .forEach(sec => sec.classList.add("hidden"));
+
         const target = document.getElementById(`rtab-${tab}`);
         if (target) target.classList.remove("hidden");
       });
     });
-    // Query 子分頁切換（fixtures / models）
+
+    // (4) Query 子分頁
     const qtabBtns = document.querySelectorAll("[data-qtab]");
     qtabBtns.forEach(btn => {
       btn.addEventListener("click", () => {
@@ -191,5 +179,20 @@
       });
     });
 
+    /* =====================================================
+     * (5) ★★★ 啟動時鐘（修復版） ★★★
+     * ===================================================== */
+    function updateClock() {
+      const now = new Date();
+      const hh = String(now.getHours()).padStart(2, "0");
+      const mm = String(now.getMinutes()).padStart(2, "0");
+      const clockEl = document.getElementById("clock");
+
+      if (clockEl) clockEl.textContent = `${hh}:${mm}`;
+    }
+
+    // 初始與更新
+    updateClock();
+    setInterval(updateClock, 1000);
   });
 })();

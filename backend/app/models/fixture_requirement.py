@@ -7,7 +7,7 @@ Fixture Requirement Data Models
 
 from typing import Optional
 from pydantic import BaseModel, Field
-
+from datetime import datetime
 
 # ============================================================
 # 基礎模型（與資料庫欄位一致）
@@ -77,7 +77,7 @@ class FixtureRequirementUpdate(BaseModel):
 
 class FixtureRequirementResponse(FixtureRequirementBase):
     id: int = Field(..., description="需求記錄 ID（AUTO_INCREMENT）")
-    created_at: Optional[str] = Field(None, description="建立時間")
+    created_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True

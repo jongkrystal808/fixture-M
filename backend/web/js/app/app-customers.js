@@ -179,3 +179,12 @@ async function deleteCustomer(id) {
     toast("刪除失敗", "error");
   }
 }
+
+const activeTab =
+  document.querySelector(".tab.tab-active")?.dataset.tab || null;
+
+if (activeTab === "query") {
+  const type = document.getElementById("queryType")?.value || "fixture";
+  if (type === "fixture") loadFixturesQuery();
+  else loadModelsQuery();
+}

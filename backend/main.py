@@ -33,6 +33,8 @@ from backend.app.routers.stats import router as stats_router
 from backend.app.routers.usage import router as usage_router
 from backend.app.routers.users import router as users_router
 from backend.app.routers.transactions import router as transactions_router
+from backend.app.routers.receipts_import import router as receipts_import_router
+from backend.app.routers.returns_import import router as returns_import_router
 
 
 # 導入配置和資料庫
@@ -246,6 +248,9 @@ app.include_router(returns_router, prefix="/api/v2")         # 退料
 app.include_router(usage_router, prefix="/api/v2")           # 使用紀錄
 app.include_router(replacement_router, prefix="/api/v2")     # 更換紀錄
 
+app.include_router(receipts_import_router, prefix="/api/v2")
+
+app.include_router(returns_import_router, prefix="/api/v2")
 
 # ============================================================
 # 📊 統計（Analytics / Dashboard）

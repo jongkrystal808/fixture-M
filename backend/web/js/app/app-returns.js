@@ -98,24 +98,120 @@ async function deleteReturn(id) {
   loadReturns();
 }
 
-/* ============================================================
- * 匯出退料 CSV
- * ============================================================ */
-async function exportReturn(id) {
+
+/********************************************
+ * 收料：下載 Excel 範本
+ ********************************************/
+function downloadReturnTemplate() {
+  const template = [
+    {
+      vendor: "MOXA",            // = customer_id
+      order_no: "PO123456",
+      fixture_id: "C-00010",
+      type: "batch",             // batch / individual
+      serial_start: 1,
+      serial_end: 10,
+      note: "示例備註"
+    }
+  ];
+
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.json_to_sheet(template);
+
+  XLSX.utils.book_append_sheet(wb, ws, "return_template");
+  XLSX.writeFile(wb, "return_template.xlsx");
+}
+
+/**
+ * 收料：匯入 Excel/CSV（使用後端 /receipts/import）
+ */
+async function handleReturnImport(input) {
+  const file = input.files[0];
+  if (!file) {
+    alert("請選擇 Excel 或 CSV 檔案");
+    return;
+  }
+
   try {
-    const blob = await apiExportReturnCsv(id);
-    exportCsvBlob(blob, `return_${id}.csv`);
+    // 直接交給後端處理，不需要前端解析
+    const result = await apiImportReturnCsv(file);
+
+    console.log("匯入結果：", result);
+    alert(`匯入成功，共 ${result.count || 0} 筆記錄`);
+
+    // 重整畫面
+    if (typeof loadReturns === "function") {
+      loadReturns();
+    }
+
   } catch (err) {
-    toast("匯出失敗", "error");
-    console.error(err);
+    console.error("匯入失敗：", err);
+    alert(`匯入失敗：${err.message}`);
+  } finally {
+    // 清空 input，不然同一檔案不會觸發 onchange
+    input.value = "";
   }
 }
 
-function exportCsvBlob(blob, filename) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
+window.handleReturnImport = handleReturnImport;
+
+/**
+ * 切換「新增退料記錄」表單顯示/隱藏
+ */
+function toggleReturnAdd(show) {
+  const form = document.getElementById("returnAddForm");
+
+  if (!form) {
+    console.error("returnAddForm 不存在！");
+    return;
+  }
+
+  if (show) {
+    form.classList.remove("hidden");
+
+    // 預設類型為 batch
+    const typeSel = document.getElementById("returnAddType");
+    if (typeSel) typeSel.value = "batch";
+
+    // 立即更新顯示模式（批量/少量）
+    if (typeof handleReturnTypeChange === "function") {
+      handleReturnTypeChange();
+    }
+  } else {
+    form.classList.add("hidden");
+  }
 }
+
+// ⚠ 必須掛到 window，HTML onclick 才能找到
+window.toggleReturnAdd = toggleReturnAdd;
+
+
+// 只留下唯一版本的切換函式
+function handleReturnTypeChange() {
+  const type = document.getElementById("returnAddType").value;
+
+  const batchArea = document.getElementById("returnBatchArea");
+  const individualArea = document.getElementById("returnIndividualArea");
+
+  if (type === "batch") {
+    batchArea.classList.remove("hidden");
+    individualArea.classList.add("hidden");
+  } else {
+    batchArea.classList.add("hidden");
+    individualArea.classList.remove("hidden");
+  }
+}
+
+// 🟢️ 確保 DOM 生成後再綁定（100% 成功）
+window.addEventListener("DOMContentLoaded", () => {
+  const typeSel = document.getElementById("returnAddType");
+  if (typeSel) {
+    typeSel.addEventListener("change", handleReturnTypeChange);
+  } else {
+    console.error("找不到 returnAddType！");
+  }
+});
+
+// 給 HTML 用
+window.handleReturnTypeChange = handleReturnTypeChange;
+window.downloadReturnTemplate = downloadReturnTemplate;

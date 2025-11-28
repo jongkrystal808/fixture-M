@@ -497,8 +497,8 @@ async def create_user(admin: dict = Depends(get_current_admin)):
 4. **Response Models** - API 回應用
    ```python
    class CustomerResponse(CustomerBase):
-       created_at: Optional[str] = None
-       updated_at: Optional[str] = None
+       created_at: Optional[datetime] = None
+       updated_at: Optional[datetime] = None
    ```
 
 ### Router 路由層

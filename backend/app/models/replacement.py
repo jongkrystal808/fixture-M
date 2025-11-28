@@ -6,9 +6,8 @@ Replacement Log Data Models
 """
 
 from typing import Optional
-from datetime import date
 from pydantic import BaseModel, Field
-
+from datetime import datetime
 
 # ============================================================
 # 基礎欄位 (與資料庫欄位對應)
@@ -27,7 +26,7 @@ class ReplacementBase(BaseModel):
         description="治具 ID",
         example="L-00017"
     )
-    replacement_date: date = Field(
+    replacement_date: Optional[datetime] = Field(
         ...,
         description="更換日期",
         example="2025-11-07"
@@ -64,10 +63,7 @@ class ReplacementCreate(ReplacementBase):
 # ============================================================
 
 class ReplacementUpdate(BaseModel):
-    replacement_date: Optional[date] = Field(
-        None,
-        description="更換日期"
-    )
+    replacement_date: Optional[datetime] = None
     reason: Optional[str] = None
     executor: Optional[str] = None
     note: Optional[str] = None
@@ -79,10 +75,7 @@ class ReplacementUpdate(BaseModel):
 
 class ReplacementResponse(ReplacementBase):
     id: int = Field(..., description="更換記錄 ID (AUTO_INCREMENT)")
-    created_at: Optional[str] = Field(
-        None,
-        description="建立時間"
-    )
+    created_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True

@@ -59,7 +59,7 @@ class StationUpdate(BaseModel):
 # ============================================================
 
 class StationResponse(StationBase):
-    created_at: Optional[str] = Field(None, description="建立時間")
+    created_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True

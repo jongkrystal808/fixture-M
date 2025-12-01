@@ -1,189 +1,181 @@
 /**
  * 站點管理前端控制 (v3.0)
- * app-stations.js
+ * 對應 index.html 站點主檔維護 Modal
  *
- * ✔ 搜尋 / 分頁
- * ✔ 新增 / 編輯 / 刪除
- * ✔ 與 api-stations.js 完整整合
+ * ✔ 新版 UI：stStationModal
+ * ✔ 正確 DOM：stCode, stName, stNote, stTable
+ * ✔ 使用 customer_id（每個 API 必須帶）
+ * ✔ 無舊版 stationTable / stationSearch 內容
  */
 
 /* ============================================================
- * 分頁狀態
+ * 工具
  * ============================================================ */
 
-let stationPage = 1;
-let stationPageSize = 20;
-
-/* ============================================================
- * 初始化
- * ============================================================ */
-
-document.addEventListener("DOMContentLoaded", () => {
-  loadStationsUI();
-});
-
-/* ============================================================
- * 讀取站點列表
- * ============================================================ */
-
-async function loadStationsUI() {
-  const search = document.getElementById("stationSearch")?.value.trim() || "";
-  const active = document.getElementById("stationFilterActive")?.value || "";
-
-  const params = {
-    page: stationPage,
-    pageSize: stationPageSize
-  };
-
-  if (search) params.search = search;
-  if (active !== "") params.is_active = active;
-
-  try {
-    const result = await apiListStations(params);
-    renderStationTable(result.stations);
-    renderStationPagination(result.total);
-  } catch (err) {
-    console.error(err);
-    toast("載入站點失敗", "error");
-  }
+function getCurrentCustomerId() {
+  return localStorage.getItem("current_customer_id");
 }
 
 /* ============================================================
- * 表格渲染
+ * 載入站點主檔清單
  * ============================================================ */
 
-function renderStationTable(rows) {
-  const tbody = document.getElementById("stationTable");
-  tbody.innerHTML = "";
-
-  if (!rows || rows.length === 0) {
-    tbody.innerHTML = `
-      <tr>
-        <td colspan="6" class="text-center py-4 text-gray-400">
-          查無資料
-        </td>
-      </tr>
-    `;
+async function stLoadStationMasterList() {
+  const customer_id = getCurrentCustomerId();
+  if (!customer_id) {
+    console.warn("未選擇客戶，無法載入站點");
     return;
   }
 
-  rows.forEach(s => {
-    const tr = document.createElement("tr");
-
-    tr.innerHTML = `
-      <td class="py-2 px-2">${s.station_id}</td>
-      <td class="py-2 px-2">${s.station_name}</td>
-      <td class="py-2 px-2">${s.is_active ? "<span class='text-green-600'>啟用</span>" : "<span class='text-red-600'>停用</span>"}</td>
-      <td class="py-2 px-2">${s.note || ""}</td>
-      <td class="py-2 px-2 text-right">
-        <button class="btn btn-xs btn-outline" onclick="openStationEdit('${s.station_id}')">編輯</button>
-        <button class="btn btn-xs btn-error" onclick="deleteStationUI('${s.station_id}')">刪除</button>
-      </td>
-    `;
-
-    tbody.appendChild(tr);
-  });
-}
-
-/* ============================================================
- * 分頁
- * ============================================================ */
-
-function renderStationPagination(total) {
-  const totalPages = Math.ceil(total / stationPageSize);
-  const box = document.getElementById("stationPagination");
-
-  box.innerHTML = "";
-  if (totalPages <= 1) return;
-
-  for (let i = 1; i <= totalPages; i++) {
-    const btn = document.createElement("button");
-    btn.className = `btn btn-sm ${i === stationPage ? "btn-primary" : "btn-outline"}`;
-    btn.innerText = i;
-    btn.onclick = () => changeStationPage(i);
-    box.appendChild(btn);
-  }
-}
-
-function changeStationPage(p) {
-  stationPage = p;
-  loadStationsUI();
-}
-
-/* ============================================================
- * 新增站點
- * ============================================================ */
-
-function openStationAdd() {
-  document.getElementById("stationForm").reset();
-  document.getElementById("stationFormMode").value = "add";
-  document.getElementById("stationModalTitle").innerText = "新增站點";
-  stationModal.showModal();
-}
-
-async function submitStationForm() {
-  const mode = document.getElementById("stationFormMode").value;
-
-  const payload = {
-    station_id: document.getElementById("s_id").value.trim(),
-    station_name: document.getElementById("s_name").value.trim(),
-    note: document.getElementById("s_note").value.trim() || null,
-    is_active: document.getElementById("s_active").checked
-  };
-
-  if (!payload.station_id) return toast("請輸入站點代碼");
-  if (!payload.station_name) return toast("請輸入站點名稱");
-
   try {
-    if (mode === "add") {
-      await apiCreateStation(payload);
-      toast("新增站點成功");
-    } else {
-      await apiUpdateStation(payload.station_id, payload);
-      toast("更新完成");
+    const rows = await apiListStations({ customer_id });
+
+    const tbody = document.getElementById("stTable");
+    tbody.innerHTML = "";
+
+    if (!rows.length) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="5" class="text-center py-2 text-gray-400">無資料</td>
+        </tr>`;
+      return;
     }
 
-    stationModal.close();
-    loadStationsUI();
+    rows.forEach(s => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td class="py-1 px-2">${s.id}</td>
+        <td class="py-1 px-2">${s.station_id}</td>
+        <td class="py-1 px-2">${s.station_name || "-"}</td>
+        <td class="py-1 px-2">${s.note || "-"}</td>
+        <td class="py-1 px-2 text-right">
+          <button class="btn btn-xs btn-outline" onclick="stEdit('${s.station_id}')">編輯</button>
+          <button class="btn btn-xs btn-error" onclick="stDelete('${s.station_id}')">刪除</button>
+        </td>
+      `;
+      tbody.appendChild(tr);
+    });
 
   } catch (err) {
     console.error(err);
-    toast("操作失敗", "error");
+    toast("載入站點列表失敗", "error");
   }
 }
 
 /* ============================================================
- * 編輯站點
+ * 新增 / 編輯 Modal 控制
  * ============================================================ */
 
-async function openStationEdit(id) {
-  const data = await apiGetStation(id);
+function stResetForm() {
+  document.getElementById("stCode").value = "";
+  document.getElementById("stName").value = "";
+  document.getElementById("stNote").value = "";
+  document.getElementById("stModeLabel").innerText = "新增";
+}
 
-  document.getElementById("stationFormMode").value = "edit";
+function stOpenStationMasterModal() {
+  stResetForm();
+  document.getElementById("stStationModal").classList.remove("hidden");
+  document.getElementById("stStationModal").style.display = "flex";
+}
 
-  document.getElementById("s_id").value = data.station_id;
-  document.getElementById("s_name").value = data.station_name;
-  document.getElementById("s_note").value = data.note || "";
-  document.getElementById("s_active").checked = data.is_active;
-
-  document.getElementById("stationModalTitle").innerText = "編輯站點";
-
-  stationModal.showModal();
+function stCloseStationMasterModal() {
+  document.getElementById("stStationModal").style.display = "none";
+  document.getElementById("stStationModal").classList.add("hidden");
 }
 
 /* ============================================================
- * 刪除站點
+ * 編輯
  * ============================================================ */
 
-async function deleteStationUI(id) {
-  if (!confirm("確定要刪除此站點？")) return;
+async function stEdit(stationId) {
+  const customer_id = getCurrentCustomerId();
 
   try {
-    await apiDeleteStation(id);
+    const data = await apiGetStation({ customer_id, station_id: stationId });
+
+    document.getElementById("stCode").value = data.station_id;
+    document.getElementById("stName").value = data.station_name;
+    document.getElementById("stNote").value = data.note || "";
+
+    document.getElementById("stModeLabel").innerText = "編輯";
+
+    stOpenStationMasterModal();
+  } catch (err) {
+    console.error(err);
+    toast("讀取站點資料失敗", "error");
+  }
+}
+
+/* ============================================================
+ * 儲存（新增 / 修改）
+ * ============================================================ */
+
+async function stSubmitForm() {
+  const customer_id = getCurrentCustomerId();
+  if (!customer_id) return toast("請先選擇客戶");
+
+  const code = document.getElementById("stCode").value.trim();
+  const name = document.getElementById("stName").value.trim();
+  const note = document.getElementById("stNote").value.trim() || null;
+
+  if (!code) return toast("請輸入站點代碼");
+  if (!name) return toast("請輸入站點名稱");
+
+  const payload = {
+    customer_id,
+    station_id: code,
+    station_name: name,
+    note
+  };
+
+  const isEdit = document.getElementById("stModeLabel").innerText === "編輯";
+
+  try {
+    if (isEdit) {
+      await apiUpdateStation(payload);
+      toast("更新成功");
+    } else {
+      await apiCreateStation(payload);
+      toast("新增成功");
+    }
+
+    stCloseStationMasterModal();
+    stLoadStationMasterList();
+
+  } catch (err) {
+    console.error(err);
+    toast("儲存失敗", "error");
+  }
+}
+
+/* ============================================================
+ * 刪除
+ * ============================================================ */
+
+async function stDelete(stationId) {
+  if (!confirm("確定刪除此站點？")) return;
+
+  const customer_id = getCurrentCustomerId();
+
+  try {
+    await apiDeleteStation({ customer_id, station_id: stationId });
     toast("已刪除");
-    loadStationsUI();
+    stLoadStationMasterList();
   } catch (err) {
     console.error(err);
     toast("刪除失敗", "error");
   }
 }
+
+/* ============================================================
+ * 導出全域
+ * ============================================================ */
+
+window.stOpenStationMasterModal = stOpenStationMasterModal;
+window.stCloseStationMasterModal = stCloseStationMasterModal;
+window.stLoadStationMasterList = stLoadStationMasterList;
+window.stSubmitForm = stSubmitForm;
+window.stResetForm = stResetForm;
+window.stEdit = stEdit;
+window.stDelete = stDelete;

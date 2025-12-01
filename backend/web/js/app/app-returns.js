@@ -1,10 +1,20 @@
-/* ============================================================
- * 退料 Returns (Final v3.5)
- * - 使用 apiListReturns / apiCreateReturn / apiDeleteReturn
- * - 使用共用 UI：renderTransactionTable / renderPagination / exportCsv
- * ============================================================ */
+/**
+ * 退料 Returns (Final v3.6)
+ * - 移除 vendor 欄位
+ * - 完全採用 customer_id（與 receipts 一致）
+ * - 修正所有 DOM id，完全對齊 index.html
+ */
 
-/* 🟠 分頁狀態 */
+/* ============================================================
+ * 取得 customer_id
+ * ============================================================ */
+function getCurrentCustomerId() {
+  return localStorage.getItem("current_customer_id");
+}
+
+/* ============================================================
+ * 分頁狀態
+ * ============================================================ */
 let returnsPage = 1;
 const returnsPageSize = 20;
 
@@ -12,11 +22,15 @@ const returnsPageSize = 20;
  * 主列表載入
  * ============================================================ */
 async function loadReturns() {
-  const fixture = document.getElementById("returnSearchFixture").value.trim();
-  const order = document.getElementById("returnSearchOrder").value.trim();
-  const operator = document.getElementById("returnSearchOperator").value.trim();
+  const customer_id = getCurrentCustomerId();
+  if (!customer_id) return console.warn("尚未選擇客戶");
+
+  const fixture = document.getElementById("returnSearchFixture")?.value.trim() || "";
+  const order = document.getElementById("returnSearchOrder")?.value.trim() || "";
+  const operator = document.getElementById("returnSearchOperator")?.value.trim() || "";
 
   const params = {
+    customer_id,
     skip: (returnsPage - 1) * returnsPageSize,
     limit: returnsPageSize
   };
@@ -25,30 +39,69 @@ async function loadReturns() {
   if (order) params.order_no = order;
   if (operator) params.operator = operator;
 
-  const data = await apiListReturns(params);
+  try {
+    const data = await apiListReturns(params);
 
-  // 渲染表格（共用）
-  renderTransactionTable(data.returns, "returnTable");
+    renderReturnTable(data.returns || []);
+    renderPagination(
+      "returnPagination",
+      data.total || 0,
+      returnsPage,
+      returnsPageSize,
+      (p) => {
+        returnsPage = p;
+        loadReturns();
+      }
+    );
+  } catch (err) {
+    console.error("loadReturns error:", err);
+    toast("退料資料載入失敗", "error");
+  }
+}
 
-  // 渲染分頁（共用）
-  renderPagination(
-    "returnPagination",
-    data.total,
-    returnsPage,
-    returnsPageSize,
-    (p) => {
-      returnsPage = p;
-      loadReturns();
-    }
-  );
+/* ============================================================
+ * 渲染退料表格
+ * ============================================================ */
+function renderReturnTable(rows) {
+  const tbody = document.getElementById("returnTable");
+  tbody.innerHTML = "";
+
+  if (!rows.length) {
+    tbody.innerHTML = `
+      <tr><td colspan="6" class="text-center py-2 text-gray-400">沒有資料</td></tr>
+    `;
+    return;
+  }
+
+  rows.forEach(r => {
+    const serialText =
+      r.serial_text ||
+      (r.serials ? r.serials : null) ||
+      (r.serial_start && r.serial_end ? `${r.serial_start}~${r.serial_end}` : "-");
+
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td class="py-2 pr-4">${r.transaction_date || ""}</td>
+      <td class="py-2 pr-4">${r.fixture_id}</td>
+      <td class="py-2 pr-4">${r.order_no || "-"}</td>
+      <td class="py-2 pr-4">${serialText}</td>
+      <td class="py-2 pr-4">${r.operator || "-"}</td>
+      <td class="py-2 pr-4 text-red-600">
+        <button class="btn btn-ghost text-xs" onclick="deleteReturn(${r.id})">刪除</button>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
 }
 
 /* ============================================================
  * 新增退料
  * ============================================================ */
 async function submitReturn() {
+  const customer_id = getCurrentCustomerId();
+  if (!customer_id) return toast("請先選擇客戶");
+
   const fixture = document.getElementById("returnAddFixture").value.trim();
-  const vendor = document.getElementById("returnAddVendor").value.trim();
   const order = document.getElementById("returnAddOrder").value.trim();
   const type = document.getElementById("returnAddType").value;
   const note = document.getElementById("returnAddNote").value.trim();
@@ -60,8 +113,8 @@ async function submitReturn() {
   if (!fixture) return toast("治具編號不得為空");
 
   const payload = {
+    customer_id,
     fixture_id: fixture,
-    vendor: vendor || null,
     order_no: order || null,
     type,
     note: note || null
@@ -70,21 +123,23 @@ async function submitReturn() {
   if (type === "batch") {
     if (!serialStart || !serialEnd)
       return toast("批量模式需輸入序號起訖");
-
     payload.serial_start = serialStart;
     payload.serial_end = serialEnd;
   } else {
     if (!serials)
       return toast("請輸入序號列表（以逗號分隔）");
-
     payload.serials = serials;
   }
 
-  await apiCreateReturn(payload);
-
-  toast("退料新增成功");
-  document.getElementById("returnAddForm").classList.add("hidden");
-  loadReturns();
+  try {
+    await apiCreateReturn(payload);
+    toast("退料新增成功");
+    document.getElementById("returnAddForm").classList.add("hidden");
+    loadReturns();
+  } catch (err) {
+    console.error(err);
+    toast("退料新增失敗", "error");
+  }
 }
 
 /* ============================================================
@@ -93,100 +148,65 @@ async function submitReturn() {
 async function deleteReturn(id) {
   if (!confirm("確認刪除退料記錄？")) return;
 
-  await apiDeleteReturn(id);
-  toast("刪除成功");
-  loadReturns();
-}
-
-
-/********************************************
- * 收料：下載 Excel 範本
- ********************************************/
-function downloadReturnTemplate() {
-  const template = [
-    {
-      vendor: "MOXA",            // = customer_id
-      order_no: "PO123456",
-      fixture_id: "C-00010",
-      type: "batch",             // batch / individual
-      serial_start: 1,
-      serial_end: 10,
-      note: "示例備註"
-    }
-  ];
-
-  const wb = XLSX.utils.book_new();
-  const ws = XLSX.utils.json_to_sheet(template);
-
-  XLSX.utils.book_append_sheet(wb, ws, "return_template");
-  XLSX.writeFile(wb, "return_template.xlsx");
-}
-
-/**
- * 收料：匯入 Excel/CSV（使用後端 /receipts/import）
- */
-async function handleReturnImport(input) {
-  const file = input.files[0];
-  if (!file) {
-    alert("請選擇 Excel 或 CSV 檔案");
-    return;
-  }
+  const customer_id = getCurrentCustomerId();
 
   try {
-    // 直接交給後端處理，不需要前端解析
-    const result = await apiImportReturnCsv(file);
+    await apiDeleteReturn(id, customer_id);
+    toast("刪除成功");
+    loadReturns();
+  } catch (err) {
+    console.error(err);
+    toast("刪除失敗", "error");
+  }
+}
 
-    console.log("匯入結果：", result);
+/* ============================================================
+ * 匯入 Excel/CSV
+ * ============================================================ */
+async function handleReturnImport(input) {
+  const file = input.files[0];
+  if (!file) return alert("請選擇 Excel 或 CSV 檔案");
+
+  const customer_id = getCurrentCustomerId();
+  if (!customer_id) return alert("請先選擇客戶");
+
+  try {
+    toast("正在匯入...");
+    const result = await apiImportReturnsXlsx(file, customer_id);
+
     alert(`匯入成功，共 ${result.count || 0} 筆記錄`);
-
-    // 重整畫面
-    if (typeof loadReturns === "function") {
-      loadReturns();
-    }
-
+    loadReturns();
   } catch (err) {
     console.error("匯入失敗：", err);
     alert(`匯入失敗：${err.message}`);
   } finally {
-    // 清空 input，不然同一檔案不會觸發 onchange
     input.value = "";
   }
 }
 
 window.handleReturnImport = handleReturnImport;
 
-/**
- * 切換「新增退料記錄」表單顯示/隱藏
- */
+/* ============================================================
+ * 新增表單顯示切換
+ * ============================================================ */
 function toggleReturnAdd(show) {
   const form = document.getElementById("returnAddForm");
-
-  if (!form) {
-    console.error("returnAddForm 不存在！");
-    return;
-  }
+  if (!form) return;
 
   if (show) {
     form.classList.remove("hidden");
-
-    // 預設類型為 batch
     const typeSel = document.getElementById("returnAddType");
     if (typeSel) typeSel.value = "batch";
-
-    // 立即更新顯示模式（批量/少量）
-    if (typeof handleReturnTypeChange === "function") {
-      handleReturnTypeChange();
-    }
+    handleReturnTypeChange();
   } else {
     form.classList.add("hidden");
   }
 }
-
-// ⚠ 必須掛到 window，HTML onclick 才能找到
 window.toggleReturnAdd = toggleReturnAdd;
 
-
-// 只留下唯一版本的切換函式
+/* ============================================================
+ * 類型切換 batch / individual
+ * ============================================================ */
 function handleReturnTypeChange() {
   const type = document.getElementById("returnAddType").value;
 
@@ -202,16 +222,33 @@ function handleReturnTypeChange() {
   }
 }
 
-// 🟢️ 確保 DOM 生成後再綁定（100% 成功）
 window.addEventListener("DOMContentLoaded", () => {
   const typeSel = document.getElementById("returnAddType");
-  if (typeSel) {
-    typeSel.addEventListener("change", handleReturnTypeChange);
-  } else {
-    console.error("找不到 returnAddType！");
-  }
+  if (typeSel) typeSel.addEventListener("change", handleReturnTypeChange);
 });
 
-// 給 HTML 用
 window.handleReturnTypeChange = handleReturnTypeChange;
+
+/* ============================================================
+ * 下載退料 Excel 範本
+ * ============================================================ */
+function downloadReturnTemplate() {
+  const template = [
+    {
+      fixture_id: "C-00010",
+      order_no: "PO123456",
+      type: "batch",
+      serial_start: 1,
+      serial_end: 10,
+      note: "示例備註"
+    }
+  ];
+
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.json_to_sheet(template);
+  XLSX.utils.book_append_sheet(wb, ws, "return_template");
+
+  XLSX.writeFile(wb, "return_template.xlsx");
+}
+
 window.downloadReturnTemplate = downloadReturnTemplate;

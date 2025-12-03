@@ -1,8 +1,9 @@
 /**
- * 收料 Receipts (Final v3.6)
+ * 收料 Receipts (Final v3.7)
+ * - v3.7 更新：增加 source_type 欄位（自購/客供）
  * - 完全與 Returns 對齊欄位 / DOM / API 結構
  * - 採用 customer_id 作為客戶欄位
- * - 表格為 8 欄：日期/治具/客戶/單號/序號/操作人員/備註/刪除
+ * - 表格為 9 欄：日期/治具/客戶/單號/來源/序號/操作人員/備註/刪除
  */
 function formatSerialsIntoRows(serialsArray, perRow = 5) {
   if (!Array.isArray(serialsArray)) return serialsArray;
@@ -133,7 +134,7 @@ function renderPagination(targetId, total, page, pageSize, onClick) {
 
 
 /* ============================================================
- * 渲染收料表格（8 欄版）
+ * 渲染收料表格（9 欄版 - 新增來源欄位）
  * ============================================================ */
 function renderReceiptTable(rows) {
   const tbody = document.getElementById("receiptTable");
@@ -141,7 +142,7 @@ function renderReceiptTable(rows) {
 
   if (!rows.length) {
     tbody.innerHTML = `
-      <tr><td colspan="8" class="text-center py-2 text-gray-400">沒有資料</td></tr>
+      <tr><td colspan="9" class="text-center py-2 text-gray-400">沒有資料</td></tr>
     `;
     return;
   }
@@ -150,6 +151,10 @@ function renderReceiptTable(rows) {
     // ★ 統一序號顯示：永遠優先使用 serial_list
     const serialText = r.serial_list ? r.serial_list : "-";
 
+    // ★ 來源類型顯示
+    const sourceTypeText = r.source_type === 'self_purchased' ? '自購' :
+                          r.source_type === 'customer_supplied' ? '客供' : '-';
+
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td class="py-2 pr-4">${r.transaction_date || ""}</td>
@@ -157,18 +162,25 @@ function renderReceiptTable(rows) {
       <td class="py-2 pr-4">${r.customer_id || "-"}</td>
       <td class="py-2 pr-4">${r.order_no || "-"}</td>
       <td class="py-2 pr-4">
+        <span class="badge ${r.source_type === 'self_purchased' ? 'badge-info' : 'badge-success'} badge-sm">
+          ${sourceTypeText}
+        </span>
+      </td>
+      <td class="py-2 pr-4">
         <div class="serial-cell">${serialText}</div>
       </td>
       <td class="py-2 pr-4">${r.operator || "-"}</td>
       <td class="py-2 pr-4">${r.note || "-"}</td>
+      <td class="py-2 pr-4">
         <button class="btn btn-ghost text-xs" onclick="deleteReceipt(${r.id})">刪除</button>
+      </td>
     `;
     tbody.appendChild(tr);
   });
 }
 
 /* ============================================================
- * 新增收料（與退料完全同規格）
+ * 新增收料（增加 source_type 欄位）
  * ============================================================ */
 async function submitReceipt() {
   const customer_id = getCurrentCustomerId();
@@ -178,6 +190,7 @@ async function submitReceipt() {
   const order = document.getElementById("receiptAddOrder").value.trim();
   const customer = document.getElementById("receiptAddCustomer").value.trim();
   const type = document.getElementById("receiptAddType").value;
+  const sourceType = document.getElementById("receiptAddSourceType").value; // ★ 新增
   const note = document.getElementById("receiptAddNote").value.trim();
 
   const serialStart = document.getElementById("receiptAddStart").value.trim();
@@ -191,6 +204,7 @@ async function submitReceipt() {
     fixture_id: fixture,
     order_no: order || null,
     customer: customer || null,
+    source_type: sourceType, // ★ 新增
     type,
     note: note || null
   };
@@ -272,6 +286,11 @@ function toggleReceiptAdd(show) {
     form.classList.remove("hidden");
     const typeSel = document.getElementById("receiptAddType");
     if (typeSel) typeSel.value = "batch";
+
+    // ★ 預設為客供
+    const sourceTypeSel = document.getElementById("receiptAddSourceType");
+    if (sourceTypeSel) sourceTypeSel.value = "customer_supplied";
+
     handleReceiptTypeChange();
   } else {
     form.classList.add("hidden");
@@ -305,7 +324,7 @@ window.addEventListener("DOMContentLoaded", () => {
 window.handleReceiptTypeChange = handleReceiptTypeChange;
 
 /* ============================================================
- * 匯出範本
+ * 匯出範本（更新為包含 source_type）
  * ============================================================ */
 function downloadReceiptTemplate() {
   const template = [
@@ -313,10 +332,20 @@ function downloadReceiptTemplate() {
       fixture_id: "C-00010",
       customer_id: "moxa",
       order_no: "PO123456",
+      source_type: "customer_supplied",  // ★ 新增：customer_supplied 或 self_purchased
       type: "batch",
       serial_start: 1,
       serial_end: 10,
       note: "示例備註"
+    },
+    {
+      fixture_id: "L-00018",
+      customer_id: "moxa",
+      order_no: "PO123457",
+      source_type: "self_purchased",  // ★ 自購範例
+      type: "individual",
+      serials: "SN001,SN002,SN003",
+      note: "自購治具"
     }
   ];
 

@@ -1,8 +1,9 @@
 /**
- * 退料 Returns (Final v3.6)
+ * 退料 Returns (Final v3.7)
+ * - v3.7 更新：增加 source_type 顯示（系統自動識別）
  * - 移除 vendor 欄位
  * - 完全採用 customer_id（與 receipts 一致）
- * - 修正所有 DOM id，完全對齊 index.html
+ * - 表格為 9 欄：日期/治具/客戶/單號/來源/序號/操作人員/備註/刪除
  */
 function formatSerialsIntoRows(serialsArray, perRow = 5) {
   if (!Array.isArray(serialsArray)) return serialsArray;
@@ -73,7 +74,7 @@ async function loadReturns() {
 
 
 /* ============================================================
- * 渲染退料表格
+ * 渲染退料表格（9 欄版 - 新增來源欄位）
  * ============================================================ */
 function renderReturnTable(rows) {
   const tbody = document.getElementById("returnTable");
@@ -81,43 +82,58 @@ function renderReturnTable(rows) {
 
   if (!rows.length) {
     tbody.innerHTML = `
-      <tr><td colspan="8" class="text-center py-2 text-gray-400">沒有資料</td></tr>
+      <tr><td colspan="9" class="text-center py-2 text-gray-400">沒有資料</td></tr>
     `;
     return;
   }
 
-    rows.forEach(r => {
-        // ★ 統一序號顯示
-        const serialText =
-          r.serial_list ||                                    // v3.6 新欄位
-          r.serial_text ||
-          (r.serials ? r.serials : null) ||
-          (r.serial_start && r.serial_end
-            ? `${r.serial_start}~${r.serial_end}`
-            : "-");
+  rows.forEach(r => {
+    // ★ 統一序號顯示
+    const serialText =
+      r.serial_list ||
+      r.serial_text ||
+      (r.serials ? r.serials : null) ||
+      (r.serial_start && r.serial_end
+        ? `${r.serial_start}~${r.serial_end}`
+        : "-");
 
-        const tr = document.createElement("tr");
-        tr.innerHTML = `
-          <td class="py-2 pr-4">${r.transaction_date || ""}</td>
-          <td class="py-2 pr-4">${r.fixture_id}</td>
-          <td class="py-2 pr-4">${r.customer_id || "-"}</td>
-          <td class="py-2 pr-4">${r.order_no || "-"}</td>
-          <td class="py-2 pr-4">
-            <div class="serial-cell">${serialText}</div>
-          </td>
-          <td class="py-2 pr-4">${r.operator || "-"}</td>
-          <td class="py-2 pr-4">${r.note || "-"}</td>
-            <button class="btn btn-ghost text-xs"onclick="deleteReturn(${r.id})">
-              刪除</button>
-        `;
-        tbody.appendChild(tr);
-      });
+    // ★ 來源類型顯示（可能包含統計資訊）
+    let sourceTypeHtml = "-";
+
+    if (r.source_type_summary) {
+      // 如果後端返回統計資訊 (例如: "自購: 2, 客供: 3")
+      sourceTypeHtml = `<span class="text-xs">${r.source_type_summary}</span>`;
+    } else if (r.source_type) {
+      // 單一來源類型
+      const sourceTypeText = r.source_type === 'self_purchased' ? '自購' : '客供';
+      const badgeClass = r.source_type === 'self_purchased' ? 'badge-info' : 'badge-success';
+      sourceTypeHtml = `<span class="badge ${badgeClass} badge-sm">${sourceTypeText}</span>`;
     }
 
-
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td class="py-2 pr-4">${r.transaction_date || ""}</td>
+      <td class="py-2 pr-4">${r.fixture_id}</td>
+      <td class="py-2 pr-4">${r.customer_id || "-"}</td>
+      <td class="py-2 pr-4">${r.order_no || "-"}</td>
+      <td class="py-2 pr-4">${sourceTypeHtml}</td>
+      <td class="py-2 pr-4">
+        <div class="serial-cell">${serialText}</div>
+      </td>
+      <td class="py-2 pr-4">${r.operator || "-"}</td>
+      <td class="py-2 pr-4">${r.note || "-"}</td>
+      <td class="py-2 pr-4">
+        <button class="btn btn-ghost text-xs" onclick="deleteReturn(${r.id})">
+          刪除
+        </button>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
 
 /* ============================================================
- * 新增退料
+ * 新增退料（不需要選擇來源類型，系統自動識別）
  * ============================================================ */
 async function submitReturn() {
   const customer_id = getCurrentCustomerId();
@@ -252,7 +268,7 @@ window.addEventListener("DOMContentLoaded", () => {
 window.handleReturnTypeChange = handleReturnTypeChange;
 
 /* ============================================================
- * 下載退料 Excel 範本
+ * 下載退料 Excel 範本（更新為包含說明）
  * ============================================================ */
 function downloadReturnTemplate() {
   const template = [
@@ -263,7 +279,15 @@ function downloadReturnTemplate() {
       type: "batch",
       serial_start: 1,
       serial_end: 10,
-      note: "示例備註"
+      note: "示例備註（系統會自動識別序號來源）"
+    },
+    {
+      fixture_id: "L-00018",
+      customer_id: "moxa",
+      order_no: "RET-001",
+      type: "individual",
+      serials: "SN001,SN002,SN003",
+      note: "退料時不需指定來源類型"
     }
   ];
 
@@ -273,6 +297,7 @@ function downloadReturnTemplate() {
 
   XLSX.writeFile(wb, "return_template.xlsx");
 }
+
 function renderPagination(targetId, total, page, pageSize, onClick) {
   const el = document.getElementById(targetId);
   if (!el) return;

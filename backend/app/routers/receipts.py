@@ -1,6 +1,7 @@
 """
-收料 Receipts Router (v3.6 增加 source_type)
-- v3.6: 增加 source_type 欄位支援（自購/客供）
+收料 Receipts Router (v3.7 增加 datecode 支援)
+- v3.7: 新增 datecode 類型收料
+- v3.6: 增加 source_type 欄位支援(自購/客供)
 - 所有 API 的 customer_id 一律使用 Query(...)
 """
 
@@ -39,7 +40,7 @@ def list_receipts(
     fixture_id: Optional[str] = None,
     order_no: Optional[str] = None,
     operator: Optional[str] = None,
-    source_type: Optional[str] = None,  # ★ 新增：來源類型篩選
+    source_type: Optional[str] = None,
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     serial: Optional[str] = None,
@@ -61,7 +62,6 @@ def list_receipts(
         where.append("t.operator LIKE %s")
         params.append(f"%{operator}%")
 
-    # ★ 新增：來源類型篩選
     if source_type:
         where.append("t.source_type = %s")
         params.append(source_type)
@@ -73,7 +73,7 @@ def list_receipts(
         where.append("t.transaction_date <= %s")
         params.append(date_to)
 
-    # 序號搜尋：JOIN details 找 serial_number
+    # 序號搜尋:JOIN details 找 serial_number
     if serial:
         where.append("""
             t.id IN (
@@ -84,7 +84,7 @@ def list_receipts(
         """)
         params.append(f"%{serial}%")
 
-    # ★ 查詢包含 source_type
+    # ★ 查詢包含 record_type 和 datecode
     sql = f"""
         SELECT 
             t.*,
@@ -145,7 +145,7 @@ def get_receipt(
 
 
 # ============================================================
-# 新增收料 (增加 source_type 支援)
+# 新增收料 (v3.7 增加 datecode 支援)
 # POST /receipts?customer_id=xxx
 # ============================================================
 @router.post("", summary="新增收料")
@@ -160,57 +160,74 @@ def create_receipt(
 
     ensure_fixture_exists(fixture_id, customer_id)
 
-    # ★ 新增：來源類型（預設為客供）
+    # 來源類型(預設為客供)
     source_type = data.get("source_type", "customer_supplied")
     if source_type not in ["self_purchased", "customer_supplied"]:
         raise HTTPException(400, "source_type 必須為 self_purchased 或 customer_supplied")
 
     typ = data.get("type", "individual")
+    created_by = user["id"]
+    operator = data.get("operator") or user["username"]
 
+    # ====================================
+    # ★ 依類型處理序號 / 數量
+    # ====================================
     if typ == "batch":
         serials = expand_serial_range(data.get("serial_start", ""), data.get("serial_end", ""))
-    else:
+        if not serials:
+            raise HTTPException(400, "批量模式需提供有效的序號範圍")
+        serials_str = ",".join(serials)
+        datecode = None
+
+    elif typ == "datecode":
+        datecode = data.get("datecode")
+        quantity = data.get("quantity")
+
+        if not datecode:
+            raise HTTPException(400, "datecode 模式需提供 datecode")
+        if not quantity or quantity <= 0:
+            raise HTTPException(400, "datecode 模式需提供有效的 quantity")
+
+        serials_str = str(quantity)
+
+    else:  # individual
         s = data.get("serials", "")
         if isinstance(s, list):
             serials = normalise_serial_list(s)
         else:
             serials = normalise_serial_list([x.strip() for x in str(s).split(",") if x.strip()])
 
-    if not serials:
-        raise HTTPException(400, "沒有提供任何序號")
+        if not serials:
+            raise HTTPException(400, "個別模式需提供序號列表")
 
-    qty = len(serials)
-    now = datetime.now()
-    created_by = user["id"]
-    operator = data.get("operator") or user["username"]
-
-    # ★ 使用存儲過程 sp_material_receipt
-    try:
-        # 將序號列表轉為逗號分隔字串
         serials_str = ",".join(serials)
+        datecode = None
 
-        # 呼叫存儲過程
-        result = db.execute_query(
+    # ====================================
+    # ★ 呼叫存儲過程 sp_material_receipt
+    # ====================================
+    try:
+        db.execute_query(
             """
             CALL sp_material_receipt(
-                %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                 @transaction_id, @message
             )
             """,
             (
-                customer_id,           # p_customer_id
-                fixture_id,            # p_fixture_id
-                now.date(),            # p_transaction_date
-                data.get("order_no"),  # p_order_no
-                source_type,           # p_source_type ★
-                serials_str,           # p_serials
-                operator,              # p_operator
-                data.get("note"),      # p_note
-                created_by             # p_user_id
+                customer_id,
+                fixture_id,
+                data.get("order_no"),
+                source_type,
+                operator,
+                data.get("note"),
+                created_by,
+                typ,
+                datecode,
+                serials_str
             )
         )
 
-        # 取得輸出參數
         output = db.execute_query("SELECT @transaction_id AS id, @message AS message")
 
         if not output or output[0]["id"] is None:
@@ -219,18 +236,50 @@ def create_receipt(
 
         trans_id = output[0]["id"]
 
-    except HTTPException:
-        raise
     except Exception as e:
         raise HTTPException(500, f"建立收料失敗: {e}")
 
-    return {
+    # ====================================
+    # ★ 返回結果（含 quantity）
+    # ====================================
+    if typ == "datecode":
+        qty = data.get("quantity")
+    else:
+        qty = len(serials_str.split(","))
+
+    result = {
         "id": trans_id,
         "fixture_id": fixture_id,
-        "source_type": source_type,  # ★ 返回來源類型
+        "source_type": source_type,
+        "type": typ,
         "quantity": qty,
-        "serials": serials
+        "message": "收料成功"
     }
+
+    # ====================================
+    # ★★★★★ 庫存更新：收料 → 增加庫存 ★★★★★
+    # ====================================
+    try:
+        if source_type == "customer_supplied":
+            update_sql = """
+                UPDATE fixtures
+                SET customer_supplied_qty = customer_supplied_qty + %s
+                WHERE id = %s AND customer_id = %s
+            """
+        else:  # self_purchased
+            update_sql = """
+                UPDATE fixtures
+                SET self_purchased_qty = self_purchased_qty + %s
+                WHERE id = %s AND customer_id = %s
+            """
+
+        db.execute_update(update_sql, (qty, fixture_id, customer_id))
+
+    except Exception as e:
+        print(f"⚠ [create_receipt] 更新治具庫存失敗 fixture={fixture_id}, qty={qty}: {e}")
+
+    return result
+
 
 
 # ============================================================
@@ -248,94 +297,67 @@ def add_receipt_details(
     if not serials or not isinstance(serials, list):
         raise HTTPException(400, "請提供 serials 陣列")
 
-    # ★ 取得收料單的 source_type
-    row = db.execute_query(
-        "SELECT id, fixture_id, source_type FROM material_transactions WHERE id=%s AND customer_id=%s AND transaction_type='receipt'",
+    # 檢查收料單是否存在
+    receipt = db.execute_query(
+        "SELECT id, fixture_id FROM material_transactions WHERE id=%s AND customer_id=%s AND transaction_type='receipt'",
         (receipt_id, customer_id)
     )
-    if not row:
+    if not receipt:
         raise HTTPException(404, "收料單不存在")
 
-    source_type = row[0]["source_type"]
-    fixture_id = row[0]["fixture_id"]
+    fixture_id = receipt[0]["fixture_id"]
+    added = []
 
-    try:
-        # 新增序號到 material_transaction_details
-        for sn in serials:
-            db.execute_update(
-                "INSERT INTO material_transaction_details (transaction_id, serial_number) VALUES (%s, %s)",
-                (receipt_id, sn)
-            )
+    for serial in serials:
+        serial = str(serial).strip()
+        if not serial:
+            continue
 
-            # ★ 同步新增到 fixture_serials
-            db.execute_update(
-                """
-                INSERT INTO fixture_serials 
-                    (customer_id, fixture_id, serial_number, source_type, status, receipt_date, receipt_transaction_id)
-                VALUES (%s, %s, %s, %s, 'available', CURDATE(), %s)
-                """,
-                (customer_id, fixture_id, sn, source_type, receipt_id)
-            )
-
-        # 更新數量
-        db.execute_update(
-            "UPDATE material_transactions SET quantity = quantity + %s WHERE id=%s",
-            (len(serials), receipt_id)
+        # 檢查是否已存在
+        exists = db.execute_query(
+            "SELECT id FROM material_transaction_details WHERE transaction_id=%s AND serial_number=%s",
+            (receipt_id, serial)
         )
-    except Exception as e:
-        raise HTTPException(500, f"新增序號失敗: {e}")
+        if exists:
+            continue
 
-    return {"id": receipt_id, "added": len(serials)}
+        # 新增明細
+        db.execute_update(
+            "INSERT INTO material_transaction_details (transaction_id, serial_number) VALUES (%s, %s)",
+            (receipt_id, serial)
+        )
+        added.append(serial)
+
+    return {"added": len(added), "serials": added}
 
 
 # ============================================================
-# 刪除序號
-# DELETE /receipts/details/{detail_id}?customer_id=xxx
+# 刪除明細
+# DELETE /receipts/details/{id}?customer_id=xxx
 # ============================================================
-@router.delete("/details/{detail_id}", summary="刪除收料序號")
+@router.delete("/details/{detail_id}", summary="刪除收料明細")
 def delete_receipt_detail(
     detail_id: int,
     customer_id: str = Query(...),
     user=Depends(get_current_user)
 ):
-    # ★ 查詢序號資訊
-    row = db.execute_query(
-        """
-        SELECT d.transaction_id, d.serial_number, t.customer_id, t.fixture_id
+    # 檢查明細是否屬於該客戶
+    detail = db.execute_query("""
+        SELECT d.id, d.transaction_id
         FROM material_transaction_details d
-        JOIN material_transactions t ON t.id=d.transaction_id
-        WHERE d.id=%s
-        """,
+        JOIN material_transactions t ON t.id = d.transaction_id
+        WHERE d.id = %s AND t.customer_id = %s AND t.transaction_type='receipt'
+    """, (detail_id, customer_id))
+
+    if not detail:
+        raise HTTPException(404, "明細不存在")
+
+    db.execute_update(
+        "DELETE FROM material_transaction_details WHERE id=%s",
         (detail_id,)
     )
-    if not row:
-        raise HTTPException(404, "明細不存在")
-    if row[0]["customer_id"] != customer_id:
-        raise HTTPException(403, "沒有權限刪除此序號")
 
-    trans_id = row[0]["transaction_id"]
-    serial_number = row[0]["serial_number"]
-    fixture_id = row[0]["fixture_id"]
-
-    try:
-        # 刪除 material_transaction_details
-        db.execute_update("DELETE FROM material_transaction_details WHERE id=%s", (detail_id,))
-
-        # ★ 同步刪除 fixture_serials（如果存在）
-        db.execute_update(
-            "DELETE FROM fixture_serials WHERE serial_number=%s AND fixture_id=%s AND receipt_transaction_id=%s",
-            (serial_number, fixture_id, trans_id)
-        )
-
-        # 更新數量
-        db.execute_update(
-            "UPDATE material_transactions SET quantity = GREATEST(quantity-1, 0) WHERE id=%s",
-            (trans_id,)
-        )
-    except Exception as e:
-        raise HTTPException(500, f"刪除序號失敗: {e}")
-
-    return {"deleted_detail_id": detail_id}
+    return {"message": "明細已刪除"}
 
 
 # ============================================================
@@ -348,85 +370,184 @@ def delete_receipt(
     customer_id: str = Query(...),
     user=Depends(get_current_user)
 ):
-    row = db.execute_query(
-        "SELECT id, fixture_id FROM material_transactions WHERE id=%s AND customer_id=%s AND transaction_type='receipt'",
+    receipt = db.execute_query(
+        "SELECT id FROM material_transactions WHERE id=%s AND customer_id=%s AND transaction_type='receipt'",
         (receipt_id, customer_id)
     )
-    if not row:
+    if not receipt:
         raise HTTPException(404, "收料單不存在")
 
-    fixture_id = row[0]["fixture_id"]
+    # 刪除主表(會自動刪除明細,因為有 ON DELETE CASCADE)
+    db.execute_update(
+        "DELETE FROM material_transactions WHERE id=%s",
+        (receipt_id,)
+    )
 
-    try:
-        # ★ 刪除 fixture_serials 中對應的序號
-        db.execute_update(
-            "DELETE FROM fixture_serials WHERE receipt_transaction_id=%s AND fixture_id=%s",
-            (receipt_id, fixture_id)
-        )
-
-        # 刪除 material_transaction_details
-        db.execute_update("DELETE FROM material_transaction_details WHERE transaction_id=%s", (receipt_id,))
-
-        # 刪除 material_transactions
-        db.execute_update("DELETE FROM material_transactions WHERE id=%s", (receipt_id,))
-    except Exception as e:
-        raise HTTPException(500, f"刪除收料單失敗: {e}")
-
-    return {"deleted_id": receipt_id}
+    return {"message": "收料單已刪除"}
 
 
 # ============================================================
-# 匯出收料記錄 CSV
-# GET /receipts/export/csv?customer_id=xxx
+# 匯出單筆收料為 CSV
+# GET /receipts/{id}/export?customer_id=xxx
 # ============================================================
-@router.get("/export/csv", summary="匯出收料記錄 CSV")
-def export_receipts_csv(
+@router.get("/{receipt_id}/export", summary="匯出收料明細為 CSV")
+def export_receipt_csv(
+    receipt_id: int,
     customer_id: str = Query(...),
-    fixture_id: Optional[str] = None,
-    date_from: Optional[str] = None,
-    date_to: Optional[str] = None,
     user=Depends(get_current_user)
 ):
-    where = ["transaction_type='receipt'", "customer_id=%s"]
-    params = [customer_id]
+    receipt = db.execute_query(
+        "SELECT * FROM material_transactions WHERE id=%s AND customer_id=%s AND transaction_type='receipt'",
+        (receipt_id, customer_id)
+    )
+    if not receipt:
+        raise HTTPException(404, "收料單不存在")
 
-    if fixture_id:
-        where.append("fixture_id LIKE %s")
-        params.append(f"%{fixture_id}%")
-    if date_from:
-        where.append("transaction_date >= %s")
-        params.append(date_from)
-    if date_to:
-        where.append("transaction_date <= %s")
-        params.append(date_to)
+    details = db.execute_query(
+        "SELECT serial_number FROM material_transaction_details WHERE transaction_id=%s ORDER BY serial_number",
+        (receipt_id,)
+    )
 
-    sql = f"""
-        SELECT 
-            transaction_date, fixture_id, customer_id, order_no, 
-            source_type, quantity, operator, note
-        FROM material_transactions
-        WHERE {' AND '.join(where)}
-        ORDER BY transaction_date DESC, id DESC
-    """
-
-    rows = db.execute_query(sql, tuple(params))
-
-    # 生成 CSV
     output = io.StringIO()
-    writer = csv.DictWriter(output, fieldnames=[
-        "transaction_date", "fixture_id", "customer_id", "order_no",
-        "source_type", "quantity", "operator", "note"
-    ])
-    writer.writeheader()
-    writer.writerows(rows)
+    writer = csv.writer(output)
+    writer.writerow(["Serial Number"])
 
-    csv_content = output.getvalue()
+    for d in details:
+        writer.writerow([d["serial_number"]])
+
+    content = output.getvalue()
     output.close()
 
     return Response(
-        content=csv_content.encode("utf-8-sig"),  # BOM for Excel
+        content=content,
         media_type="text/csv",
-        headers={
-            "Content-Disposition": f"attachment; filename=receipts_{customer_id}_{datetime.now().strftime('%Y%m%d')}.csv"
-        }
+        headers={"Content-Disposition": f"attachment; filename=receipt_{receipt_id}.csv"}
     )
+
+
+# ============================================================
+# 匯入 CSV/XLSX
+# POST /receipts/import?customer_id=xxx
+# ============================================================
+@router.post("/import", summary="批量匯入收料")
+async def import_receipts_csv(
+    file: UploadFile = File(...),
+    customer_id: str = Query(...),
+    user=Depends(get_current_user)
+):
+    import openpyxl
+    from io import BytesIO
+
+    content = await file.read()
+    success_count = 0
+    errors = []
+
+    try:
+        # 嘗試解析 Excel
+        wb = openpyxl.load_workbook(BytesIO(content))
+        ws = wb.active
+        rows = list(ws.iter_rows(min_row=2, values_only=True))
+    except Exception:
+        # 嘗試解析 CSV
+        try:
+            content_str = content.decode("utf-8")
+            csv_reader = csv.DictReader(io.StringIO(content_str))
+            rows = list(csv_reader)
+        except Exception as e:
+            raise HTTPException(400, f"無法解析檔案: {e}")
+
+    created_by = user["id"]
+    operator = user["username"]
+
+    for idx, row in enumerate(rows, start=2):
+        try:
+            if isinstance(row, dict):
+                # CSV 格式
+                fixture_id = row.get("fixture_id")
+                order_no = row.get("order_no")
+                typ = row.get("type", "individual")
+                source_type = row.get("source_type", "customer_supplied")
+                datecode = row.get("datecode")  # ★
+                note = row.get("note", "")
+                
+                # 根據類型處理
+                if typ == "batch":
+                    serial_start = row.get("serial_start")
+                    serial_end = row.get("serial_end")
+                    serials = expand_serial_range(serial_start, serial_end)
+                elif typ == "datecode":
+                    quantity = int(row.get("quantity", 0))
+                    serials = None
+                else:
+                    serials_str = row.get("serials", "")
+                    serials = [s.strip() for s in serials_str.split(",") if s.strip()]
+            else:
+                # Excel 格式 (tuple)
+                fixture_id = row[0]
+                order_no = row[1] if len(row) > 1 else None
+                typ = row[2] if len(row) > 2 else "individual"
+                source_type = row[3] if len(row) > 3 else "customer_supplied"
+                
+                if typ == "datecode":
+                    datecode = row[4] if len(row) > 4 else None
+                    quantity = int(row[5]) if len(row) > 5 else 0
+                    note = row[6] if len(row) > 6 else ""
+                    serials = None
+                elif typ == "batch":
+                    serial_start = row[4] if len(row) > 4 else ""
+                    serial_end = row[5] if len(row) > 5 else ""
+                    note = row[6] if len(row) > 6 else ""
+                    serials = expand_serial_range(serial_start, serial_end)
+                else:
+                    serials_str = row[4] if len(row) > 4 else ""
+                    note = row[5] if len(row) > 5 else ""
+                    serials = [s.strip() for s in str(serials_str).split(",") if s.strip()]
+
+            if not fixture_id:
+                errors.append(f"第 {idx} 行: 缺少 fixture_id")
+                continue
+
+            # 準備呼叫存儲過程
+            if typ == "datecode":
+                serials_str = str(quantity)
+            else:
+                if not serials:
+                    errors.append(f"第 {idx} 行: 沒有序號")
+                    continue
+                serials_str = ",".join(serials)
+
+            # 呼叫存儲過程
+            result = db.execute_query(
+                """
+                CALL sp_material_receipt(
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                    @transaction_id, @message
+                )
+                """,
+                (
+                    customer_id,
+                    fixture_id,
+                    order_no,
+                    source_type,
+                    operator,
+                    note,
+                    created_by,
+                    typ,
+                    datecode if typ == "datecode" else None,
+                    serials_str
+                )
+            )
+
+            output = db.execute_query("SELECT @transaction_id AS id, @message AS message")
+            if output and output[0]["id"]:
+                success_count += 1
+            else:
+                errors.append(f"第 {idx} 行: {output[0]['message'] if output else '收料失敗'}")
+
+        except Exception as e:
+            errors.append(f"第 {idx} 行: {str(e)}")
+
+    return {
+        "count": success_count,
+        "errors": errors
+    }

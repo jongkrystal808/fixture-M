@@ -101,41 +101,58 @@ async function loadFixtureList() {
 function renderFixtureTable(rows) {
   fxTable.innerHTML = "";
 
-  if (!rows.length) {
+  if (!rows || rows.length === 0) {
     fxTable.innerHTML = `
-      <tr><td colspan="10" class="text-center py-3 text-gray-400">沒有資料</td></tr>`;
+      <tr><td colspan="10" class="text-center py-3 text-gray-400">沒有資料</td></tr>
+    `;
     return;
   }
 
   rows.forEach(f => {
+
+    // ✔ 正確欄位
+    const id = f.fixture_id || "-";
+    const name = f.fixture_name || "-";
+    const type = f.fixture_type || "-";
+
+    // 🔥 修正庫存顯示邏輯 — 正確三段式（自購 / 客供 / 總）
+    const qtyPurchased = f.self_purchased_qty ?? 0;
+    const qtySupplied  = f.customer_supplied_qty ?? 0;
+    const qtyTotal     = qtyPurchased + qtySupplied;   // ← ★ 正確總數量
+
+    const storage = f.storage_location || "-";
+    const status  = f.status || "-";
+    const replace = f.replacement_cycle || "-";
+    const owner   = f.owner_name || "-";
+    const note    = f.note || "-";
+
     const tr = document.createElement("tr");
+
     tr.innerHTML = `
       <td class="py-2 pr-4">
         <span class="text-indigo-600 underline cursor-pointer"
-              onclick="openFixtureDetail('${f.id}')">
-          ${f.id}
+              onclick="openFixtureDetail('${id}')">
+          ${id}
         </span>
       </td>
-      <td class="py-2 pr-4">${f.fixture_name || "-"}</td>
-      <td class="py-2 pr-4">${f.fixture_type || "-"}</td>
+
+      <td class="py-2 pr-4">${name}</td>
+      <td class="py-2 pr-4">${type}</td>
+
+      <!-- 🔥 修正庫存三段式 -->
+      <td class="py-2 pr-4">${qtyPurchased} / ${qtySupplied} / ${qtyTotal}</td>
+
+      <td class="py-2 pr-4">${status}</td>
+      <td class="py-2 pr-4">${storage}</td>
+      <td class="py-2 pr-4">${owner}</td>
+      <td class="py-2 pr-4">${note}</td>
 
       <td class="py-2 pr-4">
-        ${(f.self_purchased_qty ?? 0)} /
-        ${(f.customer_supplied_qty ?? 0)} /
-        ${(f.total_qty ?? f.available_qty ?? 0)}
-      </td>
-
-      <td class="py-2 pr-4">${f.storage_location || "-"}</td>
-      <td class="py-2 pr-4">${f.status || "-"}</td>
-      <td class="py-2 pr-4">${f.replacement_cycle || "-"}</td>
-      <td class="py-2 pr-4">${f.owner_id || "-"}</td>
-      <td class="py-2 pr-4">${f.note || "-"}</td>
-
-      <td class="py-2 pr-4">
-        <button class="btn btn-xs btn-outline" onclick="openFixtureModal('edit','${f.id}')">編輯</button>
-        <button class="btn btn-xs btn-error" onclick="deleteFixture('${f.id}')">刪除</button>
+        <button class="btn btn-xs btn-outline" onclick="openFixtureModal('edit','${id}')">編輯</button>
+        <button class="btn btn-xs btn-error" onclick="deleteFixture('${id}')">刪除</button>
       </td>
     `;
+
     fxTable.appendChild(tr);
   });
 }

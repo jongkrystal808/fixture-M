@@ -1,20 +1,16 @@
 """
-收料 / 退料 資料模型 (v3.2)
+收料 / 退料 資料模型 (v3.0)
 Receipts & Returns Models
 
 對應資料表:
-- material_transactions
-- material_transaction_details
-
-v3.2 更新:
-- 新增 datecode 類型支援
-- datecode: 使用日期碼 + 數量進行收退料
+- receipts
+- returns_table
 
 v3.0 特色:
 - vendor → customer_id
 - fixture_code → fixture_id
 - receipt_type → type
-- 支援 batch / individual / datecode
+- 支援 batch / individual
 - 完全對應 fixture_serials
 """
 
@@ -29,13 +25,12 @@ from enum import Enum
 # ============================================================
 
 class RecordType(str, Enum):
-    BATCH = "batch"          # 批量:serial_start + serial_end
-    INDIVIDUAL = "individual"  # 個別:serials
-    DATECODE = "datecode"    # ★ 新增:日期碼 datecode + quantity
+    BATCH = "batch"          # 批量：serial_start + serial_end
+    INDIVIDUAL = "individual"  # 個別：serials
 
 
 # ============================================================
-# 收料基礎模型 (v3.2)
+# 收料基礎模型 (v3.0)
 # ============================================================
 
 class ReceiptBase(BaseModel):
@@ -46,7 +41,7 @@ class ReceiptBase(BaseModel):
     )
     type: RecordType = Field(
         ...,
-        description="收料類型 (batch/individual/datecode)"
+        description="收料類型 (batch/individual)"
     )
     order_no: str = Field(
         ...,
@@ -97,48 +92,13 @@ class ReceiptIndividualCreate(ReceiptBase):
 
 
 # ============================================================
-# ★ 新增:日期碼收料 (datecode)
-# ============================================================
-
-class ReceiptDatecodeCreate(ReceiptBase):
-    type: RecordType = Field(default=RecordType.DATECODE)
-    datecode: str = Field(
-        ...,
-        max_length=50,
-        description="日期碼 (例如: 2024W12, 20241201)"
-    )
-    quantity: int = Field(
-        ...,
-        gt=0,
-        description="數量"
-    )
-    source_type: str = Field(
-        default="customer_supplied",
-        description="來源類型: self_purchased=自購, customer_supplied=客供"
-    )
-
-
-# ============================================================
-# 通用收料 (前端傳進來的資料支援 batch / individual / datecode)
+# 通用收料 (前端傳進來的資料支援 batch 或 individual)
 # ============================================================
 
 class ReceiptCreate(ReceiptBase):
-    # batch 欄位
     serial_start: Optional[str] = None
     serial_end: Optional[str] = None
-    
-    # individual 欄位
     serials: Optional[str] = None
-    
-    # ★ datecode 欄位
-    datecode: Optional[str] = None
-    quantity: Optional[int] = None
-    
-    # source_type (datecode 必填, 其他可選)
-    source_type: Optional[str] = Field(
-        default="customer_supplied",
-        description="來源類型"
-    )
 
     @validator("serials")
     def validate_serials(cls, v, values):
@@ -161,23 +121,9 @@ class ReceiptCreate(ReceiptBase):
                 raise ValueError("batch 收料需要 serial_end")
         return v
 
-    @validator("datecode")
-    def validate_datecode(cls, v, values):
-        if values.get("type") == RecordType.DATECODE:
-            if not v:
-                raise ValueError("datecode 收料需要 datecode")
-        return v
-
-    @validator("quantity")
-    def validate_quantity(cls, v, values):
-        if values.get("type") == RecordType.DATECODE:
-            if not v or v <= 0:
-                raise ValueError("datecode 收料需要 quantity 且必須大於 0")
-        return v
-
 
 # ============================================================
-# 收料 回傳模型 (v3.2)
+# 收料 回傳模型 (v3.0)
 # ============================================================
 
 class ReceiptResponse(BaseModel):
@@ -189,9 +135,6 @@ class ReceiptResponse(BaseModel):
     serial_start: Optional[str]
     serial_end: Optional[str]
     serials: Optional[str]
-    datecode: Optional[str]  # ★ 新增
-    quantity: Optional[int]   # ★ 新增
-    source_type: Optional[str]
     operator: Optional[str]
     note: Optional[str]
     created_at: Optional[datetime]
@@ -206,7 +149,7 @@ class ReceiptListResponse(BaseModel):
 
 
 # ============================================================
-# 退料模型 (v3.2) - mirrors receipts
+# 退料模型 (v3.0) - mirrors receipts
 # ============================================================
 
 class ReturnBase(BaseModel):
@@ -229,27 +172,10 @@ class ReturnIndividualCreate(ReturnBase):
     serials: str
 
 
-# ★ 新增:日期碼退料
-class ReturnDatecodeCreate(ReturnBase):
-    type: RecordType = Field(default=RecordType.DATECODE)
-    datecode: str = Field(
-        ...,
-        max_length=50,
-        description="日期碼"
-    )
-    quantity: int = Field(
-        ...,
-        gt=0,
-        description="退料數量"
-    )
-
-
 class ReturnCreate(ReturnBase):
     serial_start: Optional[str] = None
     serial_end: Optional[str] = None
     serials: Optional[str] = None
-    datecode: Optional[str] = None  # ★ 新增
-    quantity: Optional[int] = None   # ★ 新增
 
 
 class ReturnResponse(BaseModel):
@@ -261,8 +187,6 @@ class ReturnResponse(BaseModel):
     serial_start: Optional[str]
     serial_end: Optional[str]
     serials: Optional[str]
-    datecode: Optional[str]  # ★ 新增
-    quantity: Optional[int]   # ★ 新增
     operator: Optional[str]
     note: Optional[str]
     created_at: Optional[datetime]

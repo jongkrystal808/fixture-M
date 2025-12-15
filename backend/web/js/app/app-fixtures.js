@@ -18,6 +18,17 @@ function getCurrentCustomerId() {
 }
 
 /* ============================================================
+ * Owners 簡易 API（補上缺少的 apiGetOwnersSimple）
+ * 對應後端 GET /owners/active
+ * ============================================================ */
+
+async function apiGetOwnersSimple() {
+  // 後端 owners.py 裡已經有 /owners/active
+  return api("/owners/active");
+}
+window.apiGetOwnersSimple = apiGetOwnersSimple;
+
+/* ============================================================
  * 分頁狀態 + DOM
  * ============================================================ */
 
@@ -38,7 +49,6 @@ const fxPageSizeSelect = document.getElementById("fxPageSize");
 const fixtureModal = document.getElementById("fixtureModal");
 const fmForm = document.getElementById("fixtureForm");
 
-
 /* ============================================================
  * 初始化
  * ============================================================ */
@@ -53,44 +63,44 @@ document.addEventListener("DOMContentLoaded", () => {
  * ============================================================ */
 
 async function loadOwnerDropdown() {
-    const fxOwnerSelect = document.getElementById("fxOwnerSelect");
-    if (!fxOwnerSelect) {
-        console.warn("fxOwnerSelect element not found in DOM");
-        return;
-    }
+  // ✅ 使用已經宣告好的 fxOwnerFilter，而不是不存在的 fxOwnerSelect
+  if (!fxOwnerFilter) {
+    console.warn("fxOwnerFilter element not found in DOM");
+    return;
+  }
 
-    let owners = [];
-    try {
-        owners = await apiGetOwnersSimple();
-    } catch (err) {
-        console.error("載入 owner 失敗", err);
-        return;
-    }
+  let owners = [];
+  try {
+    owners = await apiGetOwnersSimple();
+  } catch (err) {
+    console.error("載入 owner 失敗", err);
+    return;
+  }
 
-    fxOwnerSelect.innerHTML = `<option value="">全部</option>`;
+  fxOwnerFilter.innerHTML = `<option value="">全部</option>`;
 
-    owners.forEach(o => {
-        fxOwnerSelect.innerHTML += `<option value="${o.id}">${o.primary_owner}</option>`;
-    });
+  owners.forEach((o) => {
+    fxOwnerFilter.innerHTML += `<option value="${o.id}">${o.primary_owner}</option>`;
+  });
 }
-
-
 
 /* ============================================================
  * 載入列表
  * ============================================================ */
+
 async function loadFixtureList() {
   const customer_id = getCurrentCustomerId();
   if (!customer_id) return;
 
-  const search = fxSearchInput.value.trim();
-  const owner = fxOwnerSelect.value;
-  const status = fxStatusSelect.value;
+  const search = fxSearchInput?.value.trim() ?? "";
+  const owner = fxOwnerFilter?.value || "";
+  const status = fxStatusFilter?.value || "";
+  const pageSize = Number(fxPageSizeSelect?.value || 10);
 
   const params = {
     customer_id,
-    skip: (fxPage - 1) * fxPageSize,
-    limit: fxPageSize
+    skip: (fxPage - 1) * pageSize,
+    limit: pageSize,
   };
 
   if (search) params.search = search;
@@ -102,7 +112,6 @@ async function loadFixtureList() {
   renderFixtureTable(data.fixtures);
   renderFixturePagination(data.total);
 }
-
 
 /* ============================================================
  * 渲染表格
@@ -118,8 +127,7 @@ function renderFixtureTable(rows) {
     return;
   }
 
-  rows.forEach(f => {
-
+  rows.forEach((f) => {
     // ✔ 正確欄位
     const id = f.fixture_id || "-";
     const name = f.fixture_name || "-";
@@ -127,14 +135,14 @@ function renderFixtureTable(rows) {
 
     // 🔥 修正庫存顯示邏輯 — 正確三段式（自購 / 客供 / 總）
     const qtyPurchased = f.self_purchased_qty ?? 0;
-    const qtySupplied  = f.customer_supplied_qty ?? 0;
-    const qtyTotal     = qtyPurchased + qtySupplied;   // ← ★ 正確總數量
+    const qtySupplied = f.customer_supplied_qty ?? 0;
+    const qtyTotal = qtyPurchased + qtySupplied; // ← ★ 正確總數量
 
     const storage = f.storage_location || "-";
-    const status  = f.status || "-";
+    const status = f.status || "-";
     const replace = f.replacement_cycle || "-";
-    const owner   = f.owner_name || "-";
-    const note    = f.note || "-";
+    const owner = f.owner_name || "-";
+    const note = f.note || "-";
 
     const tr = document.createElement("tr");
 
@@ -172,7 +180,7 @@ function renderFixtureTable(rows) {
  * ============================================================ */
 
 function renderFixturePagination(total) {
-  const pageSize = Number(fxPageSizeSelect.value);
+  const pageSize = Number(fxPageSizeSelect?.value || 10);
   const max = Math.ceil(total / pageSize) || 1;
 
   fxCount.textContent = total;
@@ -271,7 +279,7 @@ async function submitFixtureForm(e) {
     cycle_unit: document.getElementById("fmCycleUnit").value,
     status: document.getElementById("fmStatus").value,
     owner_id: Number(document.getElementById("fmOwnerId").value) || null,
-    note: document.getElementById("fmNote").value.trim()
+    note: document.getElementById("fmNote").value.trim(),
   };
 
   try {
@@ -315,7 +323,7 @@ async function deleteFixture(id) {
  * 綁定查詢 UI
  * ============================================================ */
 
-fxSearchInput?.addEventListener("keydown", e => {
+fxSearchInput?.addEventListener("keydown", (e) => {
   if (e.key === "Enter") {
     fxPage = 1;
     loadFixtureList();
@@ -336,63 +344,3 @@ fxPageSizeSelect?.addEventListener("change", () => {
   fxPage = 1;
   loadFixtureList();
 });
-
-function renderPagination(targetId, total, page, pageSize, onClick) {
-  const el = document.getElementById(targetId);
-  if (!el) return;
-
-  el.innerHTML = "";
-  if (total <= pageSize) return;
-
-  const totalPages = Math.ceil(total / pageSize);
-  const maxButtons = 11;  // 顯示最多 11 個按鈕（含 ...）
-
-  function addBtn(label, p, active = false, disabled = false) {
-    const btn = document.createElement("button");
-    btn.innerText = label;
-
-    btn.className =
-      "btn btn-xs mx-1 " +
-      (active ? "btn-primary" : "btn-ghost");
-
-    if (disabled) btn.disabled = true;
-
-    btn.onclick = () => !disabled && onClick(p);
-    el.appendChild(btn);
-  }
-
-  // 上一頁
-  addBtn("‹", page - 1, false, page === 1);
-
-  // 顯示範圍
-  let start = Math.max(1, page - 4);
-  let end = Math.min(totalPages, page + 4);
-
-  if (page <= 5) {
-    end = Math.min(10, totalPages);
-  }
-
-  if (page >= totalPages - 4) {
-    start = Math.max(1, totalPages - 9);
-  }
-
-  // 第一頁
-  if (start > 1) {
-    addBtn("1", 1);
-    if (start > 2) addBtn("...", null, false, true);
-  }
-
-  // 中間頁
-  for (let p = start; p <= end; p++) {
-    addBtn(p, p, p === page);
-  }
-
-  // 最後一頁
-  if (end < totalPages) {
-    if (end < totalPages - 1) addBtn("...", null, false, true);
-    addBtn(totalPages, totalPages);
-  }
-
-  // 下一頁
-  addBtn("›", page + 1, false, page === totalPages);
-}

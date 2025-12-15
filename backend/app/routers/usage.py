@@ -1,132 +1,140 @@
 """
-使用記錄 API (v3.0)
-Usage Logs API
+使用記錄 API (v4.0, Stored Procedure 版)
+--------------------------------------
+此版本不再直接寫入 usage_logs，
+所有 INSERT 一律透過 MySQL Stored Procedure：
 
-對應資料表: usage_logs
+- sp_insert_usage_log
+
+summary 表（fixture_usage_summary, serial_usage_summary）
+由 Stored Procedure + 刪除時的重算邏輯共同維護。
+
+支援：
+- record_level = fixture / individual / batch
+- individual / batch 會展開為 serial 紀錄呼叫 SP
+- use_count > 0
+- operator 若未提供 → 預設為登入者
+- fixture_id / model_id / station_id 必填
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from typing import List, Optional
+from fastapi import APIRouter, Depends, HTTPException, Query
+from typing import Optional, Dict, Any
 from datetime import datetime
 
-from backend.app.dependencies import get_current_user, get_current_admin
 from backend.app.database import db
+from backend.app.dependencies import get_current_user
+from backend.app.utils.serial_tools import expand_serial_range, normalise_serial_list
 
-from backend.app.models.usage import (
-    UsageCreate,
-    UsageUpdate,
-    UsageResponse,
-    UsageWithDetails
-)
-
-router = APIRouter(
-    prefix="/usage",
-    tags=["使用記錄 Usage Logs"]
-)
+router = APIRouter(prefix="/usage", tags=["使用紀錄 Usage Logs v4.0"])
 
 
-# ============================================================
-# 資料存在性檢查
-# ============================================================
-
+# -------------------------------------------------------------
+# Helper：基本存在性檢查
+# -------------------------------------------------------------
 def ensure_fixture_exists(fixture_id: str, customer_id: str):
-    sql = """
-        SELECT id, fixture_name
-        FROM fixtures
-        WHERE id=%s AND customer_id=%s
-    """
-    row = db.execute_query(sql, (fixture_id, customer_id))
+    row = db.execute_query(
+        "SELECT id FROM fixtures WHERE id=%s AND customer_id=%s",
+        (fixture_id, customer_id)
+    )
     if not row:
         raise HTTPException(400, f"治具 {fixture_id} 不存在或不屬於客戶 {customer_id}")
-    return row[0]
 
 
 def ensure_model_exists(model_id: str, customer_id: str):
-    sql = """
-        SELECT id, model_name
-        FROM machine_models
-        WHERE id=%s AND customer_id=%s
-    """
-    row = db.execute_query(sql, (model_id, customer_id))
+    row = db.execute_query(
+        "SELECT id FROM machine_models WHERE id=%s AND customer_id=%s",
+        (model_id, customer_id)
+    )
     if not row:
         raise HTTPException(400, f"機種 {model_id} 不存在或不屬於客戶 {customer_id}")
-    return row[0]
 
 
 def ensure_station_exists(station_id: str, customer_id: str):
-    sql = """
-        SELECT id, station_name
-        FROM stations
-        WHERE id=%s AND customer_id=%s
-    """
-    row = db.execute_query(sql, (station_id, customer_id))
+    row = db.execute_query(
+        "SELECT id FROM stations WHERE id=%s AND customer_id=%s",
+        (station_id, customer_id)
+    )
     if not row:
         raise HTTPException(400, f"站點 {station_id} 不存在或不屬於客戶 {customer_id}")
-    return row[0]
 
 
-# ============================================================
-# 1️⃣ 新增使用記錄
-# ============================================================
-
-@router.post(
-    "",
-    response_model=UsageResponse,
-    status_code=status.HTTP_201_CREATED,
-    summary="新增使用記錄(單筆)"
-)
-async def create_usage_log(
-    data: UsageCreate,
-    current_user=Depends(get_current_user)
+# -------------------------------------------------------------
+# Helper：呼叫 sp_insert_usage_log
+# -------------------------------------------------------------
+def call_sp_insert_usage(
+    customer_id: str,
+    fixture_id: str,
+    sp_record_level: str,      # 'fixture' or 'serial'
+    serial_number: Optional[str],
+    station_id: str,
+    model_id: str,
+    use_count: int,
+    operator: str,
+    note: Optional[str],
 ):
-    # 驗證資料
-    ensure_fixture_exists(data.fixture_id, data.customer_id)
-    ensure_model_exists(data.model_id, data.customer_id)
-    ensure_station_exists(data.station_id, data.customer_id)
+    """
+    封裝對 sp_insert_usage_log 的呼叫
 
-    operator = data.operator or current_user["username"]
-    now = datetime.now()
+    SP 定義：
 
-    sql = """
-        INSERT INTO usage_logs
-            (customer_id, fixture_id, model_id, station_id, operator, note, created_at)
-        VALUES (%s, %s, %s, %s, %s, %s, %s)
+    sp_insert_usage_log(
+        IN p_customer_id VARCHAR(50),
+        IN p_fixture_id VARCHAR(50),
+        IN p_record_level ENUM('fixture','serial'),
+        IN p_serial_number VARCHAR(100),
+        IN p_station_id VARCHAR(50),
+        IN p_model_id VARCHAR(50),
+        IN p_use_count INT,
+        IN p_operator VARCHAR(100),
+        IN p_note TEXT,
+        OUT o_inserted_count INT,
+        OUT o_message VARCHAR(255)
+    )
     """
 
-    log_id = db.insert(sql, (
-        data.customer_id,
-        data.fixture_id,
-        data.model_id,
-        data.station_id,
-        operator,
-        data.note,
-        now,
-    ))
-
-    return UsageResponse(
-        id=log_id,
-        customer_id=data.customer_id,
-        fixture_id=data.fixture_id,
-        model_id=data.model_id,
-        station_id=data.station_id,
-        operator=operator,
-        note=data.note,
-        created_at=now,
+    out = db.call_sp_with_out(
+        "sp_insert_usage_log",
+        [
+            customer_id,
+            fixture_id,
+            sp_record_level,
+            serial_number,
+            station_id,
+            model_id,
+            use_count,
+            operator,
+            note,
+        ],
+        ["o_inserted_count", "o_message"],
     )
 
+    # 可能是 dict 或 tuple，兩種都處理一下
+    if isinstance(out, dict):
+        inserted = out.get("o_inserted_count")
+        message = out.get("o_message")
+    else:
+        # 順序：o_inserted_count, o_message
+        inserted = out[0] if out and len(out) > 0 else None
+        message = out[1] if out and len(out) > 1 else None
 
-# ============================================================
-# 2️⃣ 列表查詢使用記錄
-# ============================================================
+    if not inserted:
+        # SP 自己會填錯誤訊息（如：治具不存在 / 序號不屬於該治具）
+        raise HTTPException(400, message or "使用記錄新增失敗")
 
-@router.get(
-    "",
-    response_model=List[UsageWithDetails],
-    summary="查詢使用記錄列表"
-)
-async def list_usage_logs(
+    return {
+        "inserted_count": inserted,
+        "message": message or "使用記錄新增成功",
+    }
+
+
+# -------------------------------------------------------------
+# 列表（僅查 usage_logs，不牽涉 summary）
+# -------------------------------------------------------------
+@router.get("", summary="查詢使用紀錄列表 (v4.0)")
+def list_usage_logs(
     customer_id: str = Query(...),
     fixture_id: Optional[str] = None,
+    serial_number: Optional[str] = None,
     model_id: Optional[str] = None,
     station_id: Optional[str] = None,
     operator: Optional[str] = None,
@@ -134,125 +142,437 @@ async def list_usage_logs(
     date_to: Optional[datetime] = None,
     skip: int = 0,
     limit: int = 100,
-    current_user=Depends(get_current_user)
+    user=Depends(get_current_user),
 ):
-    wh = ["ul.customer_id = %(customer_id)s"]
-    params = {"customer_id": customer_id}
+
+    where = ["ul.customer_id=%s"]
+    params = [customer_id]
 
     if fixture_id:
-        wh.append("ul.fixture_id = %(fixture_id)s")
-        params["fixture_id"] = fixture_id
+        where.append("ul.fixture_id=%s")
+        params.append(fixture_id)
+
+    if serial_number:
+        where.append("ul.serial_number=%s")
+        params.append(serial_number)
 
     if model_id:
-        wh.append("ul.model_id = %(model_id)s")
-        params["model_id"] = model_id
+        where.append("ul.model_id=%s")
+        params.append(model_id)
 
     if station_id:
-        wh.append("ul.station_id = %(station_id)s")
-        params["station_id"] = station_id
+        where.append("ul.station_id=%s")
+        params.append(station_id)
 
     if operator:
-        wh.append("ul.operator LIKE %(operator)s")
-        params["operator"] = f"%{operator}%"
+        where.append("ul.operator LIKE %s")
+        params.append(f"%{operator}%")
 
     if date_from:
-        wh.append("ul.created_at >= %(date_from)s")
-        params["date_from"] = date_from
+        where.append("ul.used_at >= %s")
+        params.append(date_from)
 
     if date_to:
-        wh.append("ul.created_at <= %(date_to)s")
-        params["date_to"] = date_to
-
-    where_sql = " AND ".join(wh)
+        where.append("ul.used_at <= %s")
+        params.append(date_to)
 
     sql = f"""
-        SELECT
+        SELECT 
             ul.*,
             f.fixture_name,
-            mm.model_name,
+            m.model_name,
             s.station_name
         FROM usage_logs ul
-        LEFT JOIN fixtures f
+        LEFT JOIN fixtures f 
             ON ul.fixture_id = f.id AND ul.customer_id = f.customer_id
-        LEFT JOIN machine_models mm
-            ON ul.model_id = mm.id AND ul.customer_id = mm.customer_id
+        LEFT JOIN machine_models m
+            ON ul.model_id = m.id AND ul.customer_id = m.customer_id
         LEFT JOIN stations s
             ON ul.station_id = s.id AND ul.customer_id = s.customer_id
-        WHERE {where_sql}
-        ORDER BY ul.created_at DESC
-        LIMIT %(limit)s OFFSET %(skip)s
+        WHERE {' AND '.join(where)}
+        ORDER BY ul.used_at DESC, ul.id DESC
+        LIMIT %s OFFSET %s
     """
 
-    params["limit"] = limit
-    params["skip"] = skip
-
-    rows = db.execute_query(sql, params)
-
-    return [
-        UsageWithDetails(
-            **row,
-            fixture_name=row.get("fixture_name"),
-            model_name=row.get("model_name"),
-            station_name=row.get("station_name"),
-        )
-        for row in rows
-    ]
+    params.extend([limit, skip])
+    rows = db.execute_query(sql, tuple(params))
+    return rows
 
 
-# ============================================================
-# 3️⃣ 查詢單筆使用記錄
-# ============================================================
-
-@router.get(
-    "/{log_id}",
-    response_model=UsageWithDetails,
-    summary="取得單筆使用記錄"
-)
-async def get_usage_log(
-    log_id: int,
-    current_user=Depends(get_current_user)
+# -------------------------------------------------------------
+# 新增使用記錄（fixture / individual / batch）
+# -------------------------------------------------------------
+@router.post("", summary="新增使用紀錄（支援 fixture / individual / batch）")
+def create_usage(
+    data: Dict[str, Any],
+    customer_id: str = Query(...),
+    user=Depends(get_current_user),
 ):
-    sql = """
-        SELECT
-            ul.*,
-            f.fixture_name,
-            mm.model_name,
-            s.station_name
-        FROM usage_logs ul
-        LEFT JOIN fixtures f
-            ON ul.fixture_id = f.id AND ul.customer_id = f.customer_id
-        LEFT JOIN machine_models mm
-            ON ul.model_id = mm.id AND ul.customer_id = mm.customer_id
-        LEFT JOIN stations s
-            ON ul.station_id = s.id AND ul.customer_id = s.customer_id
-        WHERE ul.id = %s
+    """
+    前端 payload（app-usage.js v4.0）預期：
+
+    {
+      "fixture_id": "L-00001",
+      "model_id": "EDS-2008",
+      "station_id": "T1_MP",
+      "use_count": 5,
+      "operator": "100182",        # 可省略 → 後端帶登入者
+      "note": "備註",
+      "record_level": "fixture" | "individual" | "batch",
+      "serials": ["SN001", "SN002"],        # individual
+      "serial_start": "SN001",             # batch
+      "serial_end": "SN100"                # batch
+    }
     """
 
-    rows = db.execute_query(sql, (log_id,))
+    fixture_id = data.get("fixture_id")
+    if not fixture_id:
+        raise HTTPException(400, "缺少 fixture_id")
+
+    model_id = data.get("model_id")
+    if not model_id:
+        raise HTTPException(400, "缺少 model_id")
+
+    station_id = data.get("station_id")
+    if not station_id:
+        raise HTTPException(400, "缺少 station_id")
+
+    ensure_fixture_exists(fixture_id, customer_id)
+    ensure_model_exists(model_id, customer_id)
+    ensure_station_exists(station_id, customer_id)
+
+    # 操作者
+    operator = data.get("operator") or user["username"]
+
+    # 使用次數
+    try:
+        use_count = int(data.get("use_count", 1))
+    except Exception:
+        raise HTTPException(400, "use_count 必須為整數")
+
+    if use_count <= 0:
+        raise HTTPException(400, "use_count 必須 > 0")
+
+    note = data.get("note")
+
+    record_level = data.get("record_level", "fixture")  # fixture / individual / batch
+
+    # -----------------------------
+    # 1. fixture-level 使用紀錄
+    # -----------------------------
+    if record_level == "fixture":
+        result = call_sp_insert_usage(
+            customer_id=customer_id,
+            fixture_id=fixture_id,
+            sp_record_level="fixture",
+            serial_number=None,
+            station_id=station_id,
+            model_id=model_id,
+            use_count=use_count,
+            operator=operator,
+            note=note,
+        )
+        return {
+            "mode": "fixture",
+            "inserted_count": result["inserted_count"],
+            "message": result["message"],
+        }
+
+    # -----------------------------
+    # 2. individual: 多筆序號
+    # -----------------------------
+    if record_level == "individual":
+        serials_raw = data.get("serials") or data.get("serial_numbers")
+        if not serials_raw:
+            raise HTTPException(400, "individual 模式需要 serials 陣列或字串")
+
+        if isinstance(serials_raw, str):
+            serials = normalise_serial_list(
+                [x.strip() for x in serials_raw.split(",") if x.strip()]
+            )
+        else:
+            serials = normalise_serial_list(serials_raw)
+
+        if not serials:
+            raise HTTPException(400, "individual 模式解析不到任何序號")
+
+        created = 0
+        errors = []
+
+        for sn in serials:
+            try:
+                res = call_sp_insert_usage(
+                    customer_id=customer_id,
+                    fixture_id=fixture_id,
+                    sp_record_level="serial",
+                    serial_number=sn,
+                    station_id=station_id,
+                    model_id=model_id,
+                    use_count=use_count,
+                    operator=operator,
+                    note=note,
+                )
+                created += res["inserted_count"] or 0
+            except HTTPException as he:
+                errors.append(f"{sn}: {he.detail}")
+            except Exception as e:
+                errors.append(f"{sn}: {str(e)}")
+
+        return {
+            "mode": "individual",
+            "requested": len(serials),
+            "inserted_count": created,
+            "errors": errors,
+        }
+
+    # -----------------------------
+    # 3. batch: serial_start + serial_end
+    # -----------------------------
+    if record_level == "batch":
+        start = data.get("serial_start")
+        end = data.get("serial_end")
+        serials = expand_serial_range(start or "", end or "")
+
+        if not serials:
+            raise HTTPException(400, "batch 模式需要有效的 serial_start / serial_end")
+
+        created = 0
+        errors = []
+
+        for sn in serials:
+            try:
+                res = call_sp_insert_usage(
+                    customer_id=customer_id,
+                    fixture_id=fixture_id,
+                    sp_record_level="serial",
+                    serial_number=sn,
+                    station_id=station_id,
+                    model_id=model_id,
+                    use_count=use_count,
+                    operator=operator,
+                    note=note,
+                )
+                created += res["inserted_count"] or 0
+            except HTTPException as he:
+                errors.append(f"{sn}: {he.detail}")
+            except Exception as e:
+                errors.append(f"{sn}: {str(e)}")
+
+        return {
+            "mode": "batch",
+            "range": {"start": start, "end": end},
+            "requested": len(serials),
+            "inserted_count": created,
+            "errors": errors,
+        }
+
+    raise HTTPException(400, f"未知的 record_level: {record_level}")
+
+
+# -------------------------------------------------------------
+# 單筆查詢
+# -------------------------------------------------------------
+@router.get("/{log_id}", summary="取得單筆使用紀錄")
+def get_usage(
+    log_id: int,
+    customer_id: str = Query(...),
+    user=Depends(get_current_user),
+):
+    rows = db.execute_query(
+        """
+        SELECT 
+            ul.*,
+            f.fixture_name,
+            m.model_name,
+            s.station_name
+        FROM usage_logs ul
+        LEFT JOIN fixtures f 
+            ON ul.fixture_id = f.id AND ul.customer_id = f.customer_id
+        LEFT JOIN machine_models m
+            ON ul.model_id = m.id AND ul.customer_id = m.customer_id
+        LEFT JOIN stations s
+            ON ul.station_id = s.id AND ul.customer_id = s.customer_id
+        WHERE ul.id=%s AND ul.customer_id=%s
+        """,
+        (log_id, customer_id),
+    )
+
     if not rows:
         raise HTTPException(404, "使用記錄不存在")
 
-    return UsageWithDetails(**rows[0])
+    return rows[0]
 
 
-# ============================================================
-# 4️⃣ 刪除使用記錄
-# ============================================================
-
-@router.delete(
-    "/{log_id}",
-    summary="刪除使用記錄",
-    status_code=204
-)
-async def delete_usage_log(
+# -------------------------------------------------------------
+# 刪除 + 自動重算 summary
+# -------------------------------------------------------------
+@router.delete("/{log_id}", summary="刪除使用紀錄（並重算 summary）")
+def delete_usage(
     log_id: int,
-    current_admin=Depends(get_current_admin)
+    customer_id: str = Query(...),
+    user=Depends(get_current_user),
 ):
-    affected = db.execute_update(
-        "DELETE FROM usage_logs WHERE id=%s",
-        (log_id,),
+    # 1. 先查舊資料
+    rows = db.execute_query(
+        """
+        SELECT id, customer_id, fixture_id, serial_number, record_level
+        FROM usage_logs
+        WHERE id=%s AND customer_id=%s
+        """,
+        (log_id, customer_id),
     )
-    if affected == 0:
+
+    if not rows:
         raise HTTPException(404, "使用記錄不存在")
 
-    return None
+    row = rows[0]
+    fixture_id = row["fixture_id"]
+    serial_number = row.get("serial_number")
+    record_level = row.get("record_level")
+
+    # 2. 刪除 usage_logs
+    db.execute_update("DELETE FROM usage_logs WHERE id=%s", (log_id,))
+
+    # 3. 重算 fixture_usage_summary（只看 record_level='fixture'）
+    agg_fx = db.execute_query(
+        """
+        SELECT 
+            COALESCE(SUM(use_count), 0) AS total_use_count,
+            MAX(used_at) AS last_used_at
+        FROM usage_logs
+        WHERE customer_id=%s
+          AND fixture_id=%s
+          AND record_level='fixture'
+        """,
+        (customer_id, fixture_id),
+    )[0]
+
+    total_fx = agg_fx["total_use_count"] or 0
+    last_fx = agg_fx["last_used_at"]
+
+    if total_fx > 0 and last_fx:
+        db.execute_update(
+            """
+            INSERT INTO fixture_usage_summary
+                (customer_id, fixture_id, total_use_count, last_used_at, updated_at)
+            VALUES (%s, %s, %s, %s, NOW())
+            ON DUPLICATE KEY UPDATE
+                total_use_count = VALUES(total_use_count),
+                last_used_at    = VALUES(last_used_at),
+                updated_at      = NOW()
+            """,
+            (customer_id, fixture_id, total_fx, last_fx),
+        )
+    else:
+        db.execute_update(
+            """
+            DELETE FROM fixture_usage_summary
+            WHERE customer_id=%s AND fixture_id=%s
+            """,
+            (customer_id, fixture_id),
+        )
+
+    # 4. 如為 serial-level，重算 serial_usage_summary
+    if record_level == "serial" and serial_number:
+        agg_sn = db.execute_query(
+            """
+            SELECT 
+                COALESCE(SUM(use_count), 0) AS total_use_count,
+                MAX(used_at) AS last_used_at
+            FROM usage_logs
+            WHERE customer_id=%s
+              AND fixture_id=%s
+              AND serial_number=%s
+              AND record_level='serial'
+            """,
+            (customer_id, fixture_id, serial_number),
+        )[0]
+
+        total_sn = agg_sn["total_use_count"] or 0
+        last_sn = agg_sn["last_used_at"]
+
+        if total_sn > 0 and last_sn:
+            db.execute_update(
+                """
+                INSERT INTO serial_usage_summary
+                    (customer_id, fixture_id, serial_number,
+                     total_use_count, last_used_at, updated_at)
+                VALUES (%s, %s, %s, %s, %s, NOW())
+                ON DUPLICATE KEY UPDATE
+                    total_use_count = VALUES(total_use_count),
+                    last_used_at    = VALUES(last_used_at),
+                    updated_at      = NOW()
+                """,
+                (customer_id, fixture_id, serial_number, total_sn, last_sn),
+            )
+        else:
+            db.execute_update(
+                """
+                DELETE FROM serial_usage_summary
+                WHERE customer_id=%s AND fixture_id=%s AND serial_number=%s
+                """,
+                (customer_id, fixture_id, serial_number),
+            )
+
+    return {"message": "已刪除", "id": log_id}
+
+
+# -------------------------------------------------------------
+# 總結摘要：治具層級
+# -------------------------------------------------------------
+@router.get("/summary/{fixture_id}", summary="取得治具使用摘要")
+def get_fixture_summary(
+    fixture_id: str,
+    customer_id: str = Query(...),
+    user=Depends(get_current_user),
+):
+    rows = db.execute_query(
+        """
+        SELECT *
+        FROM fixture_usage_summary
+        WHERE customer_id=%s AND fixture_id=%s
+        """,
+        (customer_id, fixture_id),
+    )
+
+    if not rows:
+        # 沒有任何使用記錄時，回傳空物件更友善
+        return {
+            "customer_id": customer_id,
+            "fixture_id": fixture_id,
+            "total_use_count": 0,
+            "last_used_at": None,
+            "updated_at": None,
+        }
+
+    return rows[0]
+
+
+# -------------------------------------------------------------
+# 總結摘要：序號層級
+# -------------------------------------------------------------
+@router.get("/serial/{serial_number}", summary="取得序號使用摘要")
+def get_serial_summary(
+    serial_number: str,
+    customer_id: str = Query(...),
+    user=Depends(get_current_user),
+):
+    rows = db.execute_query(
+        """
+        SELECT *
+        FROM serial_usage_summary
+        WHERE customer_id=%s AND serial_number=%s
+        """,
+        (customer_id, serial_number),
+    )
+
+    if not rows:
+        return {
+            "customer_id": customer_id,
+            "serial_number": serial_number,
+            "total_use_count": 0,
+            "last_used_at": None,
+            "updated_at": None,
+        }
+
+    return rows[0]

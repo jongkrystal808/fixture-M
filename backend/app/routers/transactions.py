@@ -1,7 +1,9 @@
 # backend/app/routers/transactions.py
-
+import io
+import openpyxl
 from fastapi import APIRouter, Depends, Query
 from backend.app.routers import receipts, returns
+from fastapi.responses import StreamingResponse
 from backend.app.dependencies import get_current_user
 from typing import Optional
 from backend.app.database import db
@@ -130,3 +132,144 @@ async def view_all_transactions(
     total = db.execute_query(count_sql, tuple(params))[0]["total"]
 
     return {"total": total, "rows": rows}
+
+
+@router.get("/summary/export")
+async def export_summary(
+    customer_id: str = Query(...),
+
+    fixture_id: Optional[str] = Query(None),
+    datecode: Optional[str] = Query(None),
+    operator: Optional[str] = Query(None),
+    # ★ 先拿掉 tran_type，之後如果要用再另外加 alias
+    # tran_type: Optional[str] = Query(None),   # receipt / return
+
+    # ★ 這行重點：alias="type" 讓 ?type=summary/detailed 控制匯出模式
+    export_type: str = Query("summary", alias="type"),      # summary / detailed
+
+    user=Depends(get_current_user)
+):
+
+    # --------- WHERE 組合 ---------
+    where = ["mt.customer_id = %s"]
+    params = [customer_id]
+
+    if fixture_id:
+        where.append("mt.fixture_id = %s")
+        params.append(fixture_id)
+
+    if datecode:
+        where.append("mt.datecode = %s")
+        params.append(datecode)
+
+    if operator:
+        where.append("mt.operator LIKE %s")
+        params.append(f"%{operator}%")
+
+    # if tran_type:
+    #     where.append("mt.transaction_type = %s")
+    #     params.append(tran_type)
+
+    where_sql = " AND ".join(where)
+
+    # --------- Summary ---------
+    if export_type == "summary":
+        sql = f"""
+            SELECT 
+                mt.fixture_id,
+                SUM(CASE WHEN mt.transaction_type='receipt' THEN mt.quantity ELSE 0 END) AS receipt_qty,
+                SUM(CASE WHEN mt.transaction_type='return' THEN mt.quantity ELSE 0 END) AS return_qty,
+                SUM(CASE WHEN mt.transaction_type='receipt' THEN mt.quantity ELSE 0 END)
+                - SUM(CASE WHEN mt.transaction_type='return' THEN mt.quantity ELSE 0 END) AS total_qty
+            FROM material_transactions mt
+            WHERE {where_sql}
+            GROUP BY mt.fixture_id
+            ORDER BY mt.fixture_id
+        """
+        rows = db.execute_query(sql, tuple(params))
+        headers = ["治具ID", "收料數", "退料數", "總數"]
+
+    # --------- Detailed ---------
+    else:
+        sql = f"""
+            SELECT
+                mt.fixture_id,
+                mt.datecode,
+                mtd.serial_number,
+                
+                SUM(CASE WHEN mt.transaction_type='receipt' THEN 
+                        CASE 
+                            WHEN mt.record_type='datecode' THEN mt.quantity  -- datecode 模式用 quantity
+                            WHEN mt.record_type IN ('batch','individual') THEN 1  -- 序號制每筆 1
+                        END
+                    ELSE 0 END
+                ) AS receipt_qty,
+            
+                SUM(CASE WHEN mt.transaction_type='return' THEN 
+                        CASE 
+                            WHEN mt.record_type='datecode' THEN mt.quantity
+                            WHEN mt.record_type IN ('batch','individual') THEN 1
+                        END
+                    ELSE 0 END
+                ) AS return_qty,
+            
+                SUM(CASE WHEN mt.transaction_type='receipt' THEN 
+                        CASE 
+                            WHEN mt.record_type='datecode' THEN mt.quantity 
+                            WHEN mt.record_type IN ('batch','individual') THEN 1 
+                        END
+                    ELSE 0 END
+                )
+                -
+                SUM(CASE WHEN mt.transaction_type='return' THEN 
+                        CASE 
+                            WHEN mt.record_type='datecode' THEN mt.quantity
+                            WHEN mt.record_type IN ('batch','individual') THEN 1
+                        END
+                    ELSE 0 END
+                ) AS total_qty
+            
+            FROM material_transactions mt
+            LEFT JOIN material_transaction_details mtd 
+                   ON mtd.transaction_id = mt.id
+            
+            WHERE {where_sql}
+            
+            GROUP BY 
+                mt.fixture_id,
+                mt.datecode,
+                mtd.serial_number
+            ORDER BY 
+                mt.fixture_id, 
+                mt.datecode,
+                mtd.serial_number;
+
+        """
+        rows = db.execute_query(sql, tuple(params))
+        headers = ["治具ID", "Datecode", "序號", "收料數", "退料數", "總數"]
+
+    # -------------------------------------------------------
+    # 產生 Excel
+    # -------------------------------------------------------
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(headers)
+
+    for r in rows:
+        ws.append(list(r.values()))
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    filename = (
+        "transactions_summary.xlsx"
+        if export_type == "summary"
+        else "transactions_summary_detailed.xlsx"
+    )
+
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )

@@ -20,6 +20,13 @@ let userPageSize = 20;
  * ============================================================ */
 
 document.addEventListener("DOMContentLoaded", () => {
+
+  // 🔥 若本頁根本沒有 userTable，停止執行
+  if (!document.getElementById("userTable")) {
+    console.warn("User table not found — skip user module init");
+    return;
+  }
+
   loadUsers();
 });
 
@@ -57,6 +64,8 @@ async function loadUsers() {
 
 function renderUserTable(rows) {
   const tbody = document.getElementById("userTable");
+  if (!tbody) return;   // 安全防呆
+
   tbody.innerHTML = "";
 
   if (!rows || rows.length === 0) {

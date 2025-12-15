@@ -13,12 +13,12 @@ from backend.app.utils.password import (
     verify_password,
 )
 
-# --- 讀取環境變數 (必須從 config.py 或 .env 載入) ---
+# --- 讀取環境變數 (必須從 config.py 或 .env_bk 載入) ---
 from backend.config import settings
 
 
 # ============================================================
-# JWT 設定（從 .env 或 config.py 載入）
+# JWT 設定（從 .env_bk 或 config.py 載入）
 # ============================================================
 
 SECRET_KEY = settings.SECRET_KEY

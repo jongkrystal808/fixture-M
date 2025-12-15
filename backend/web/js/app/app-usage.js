@@ -1,217 +1,336 @@
 /**
- * 使用紀錄前端控制 (v3.5)
- * 完整修正版
+ * 使用記錄前端控制 (v4.0 Final)
+ * -----------------------------------------------------------
+ * 支援:
+ *  - fixture（治具層級，無序號）
+ *  - individual（多序號）
+ *  - batch（序號起訖展開）
  *
- * ✔ skip / limit 改正
- * ✔ fixture_id / station_id 正名
- * ✔ customer_id 注入
- * ✔ 分頁修正
- * ✔ 匯入 / 新增 / 刪除完整可用
+ * 後端 API:
+ *  POST /api/v2/usage
+ *  GET  /api/v2/usage
+ *  DELETE /api/v2/usage/{id}
+ * -----------------------------------------------------------
  */
 
-/* ============================================================
- * 分頁狀態
- * ============================================================ */
+////////////////////////////
+// DOM 綁定
+////////////////////////////
 
-let usagePage = 1;
-const usagePageSize = 20;
+const fxInput        = document.getElementById("usageAddFixture");
+const modelInput     = document.getElementById("usageAddModel");
+const stationInput   = document.getElementById("usageAddStation");
 
-/* ============================================================
- * 初始化
- * ============================================================ */
+const levelSelect    = document.getElementById("usageAddLevel");
+const serialsInput   = document.getElementById("usageAddSerials");
+const batchStart     = document.getElementById("usageAddSerialStart");
+const batchEnd       = document.getElementById("usageAddSerialEnd");
 
-document.addEventListener("DOMContentLoaded", () => {
-  loadUsageLogs();
+const countInput     = document.getElementById("usageAddCount");
+const operatorInput  = document.getElementById("usageAddOperator");
+const usedAtInput    = document.getElementById("usageAddTime");
+const noteInput      = document.getElementById("usageAddNote");
+
+const usageTableBody = document.getElementById("usageTable");
+
+
+////////////////////////////
+// UI Mode 切換
+////////////////////////////
+
+function toggleUsageSerialInputs() {
+    const mode = levelSelect.value;
+
+    document.getElementById("usageSerialSingleField").classList.toggle(
+        "hidden",
+        mode !== "individual"
+    );
+
+    document.getElementById("usageSerialBatchField").classList.toggle(
+        "hidden",
+        mode !== "batch"
+    );
+}
+
+levelSelect?.addEventListener("change", toggleUsageSerialInputs);
+toggleUsageSerialInputs();
+
+
+////////////////////////////
+// 綁定站點帶入
+////////////////////////////
+async function loadStationsForFixture(fixtureId) {
+    usageStationSelect.innerHTML = `<option value="">載入中...</option>`;
+
+    try {
+        const url = `/api/v2/model-details/stations-by-fixture/${fixtureId}`;
+        const rows = await api(url);
+
+        usageStationSelect.innerHTML = "";
+        rows.forEach(r => {
+            usageStationSelect.innerHTML += `
+                <option value="${r.station_id}">
+                    ${r.station_id} - ${r.station_name ?? ""}
+                </option>
+            `;
+        });
+
+        if (!rows.length) {
+            usageStationSelect.innerHTML = `<option value="">無綁定站點</option>`;
+        }
+    } catch (err) {
+        console.error(err);
+        usageStationSelect.innerHTML = `<option value="">讀取失敗</option>`;
+    }
+}
+
+
+fxInput?.addEventListener("change", () => {
+    const fx = fxInput.value.trim();
+    if (fx) loadStationsForFixture(fx);
 });
 
-/* 取 customer_id */
-function getCurrentCustomerId() {
-  return localStorage.getItem("current_customer_id");
+
+////////////////////////////
+// 序號解析工具
+////////////////////////////
+
+function parseIndividualSerials(text) {
+    if (!text) return [];
+    return text
+        .split(/[\s,]+/)
+        .map(s => s.trim())
+        .filter(Boolean);
 }
 
-/* ============================================================
- * 載入使用紀錄列表
- * ============================================================ */
+function expandBatchSerials(start, end) {
+    const s = start.trim(), e = end.trim();
+    if (!s || !e) return [];
 
-async function loadUsageLogs() {
-  const fixtureId = document.getElementById("usageSearchFixture")?.value.trim() || "";
-  const stationId = document.getElementById("usageSearchStation")?.value.trim() || "";
-  const operator = document.getElementById("usageSearchOperator")?.value.trim() || "";
-  const from = document.getElementById("usageSearchFrom")?.value;
-  const to = document.getElementById("usageSearchTo")?.value;
+    const prefixS = s.match(/^\D+/)?.[0] || "";
+    const prefixE = e.match(/^\D+/)?.[0] || "";
 
-  const customer_id = getCurrentCustomerId();
-  if (!customer_id) return console.warn("尚未選擇客戶");
+    if (prefixS !== prefixE) throw new Error("批量序號前綴不一致");
 
-  const params = {
-    customer_id,
-    skip: (usagePage - 1) * usagePageSize,
-    limit: usagePageSize
-  };
+    const numS = parseInt(s.replace(prefixS, ""));
+    const numE = parseInt(e.replace(prefixE, ""));
 
-  if (fixtureId) params.fixture_id = fixtureId;
-  if (stationId) params.station_id = stationId;
-  if (operator) params.operator = operator;
-  if (from) params.date_from = new Date(from).toISOString();
-  if (to) params.date_to = new Date(to).toISOString();
+    if (isNaN(numS) || isNaN(numE) || numE < numS)
+        throw new Error("序號範圍無效");
 
-  try {
-    const result = await apiListUsageLogs(params); // {usage_logs, total}
-    renderUsageTable(result.usage_logs || []);
-    renderUsagePagination(result.total || 0);
-  } catch (err) {
-    console.error(err);
-    toast("載入使用紀錄失敗", "error");
-  }
+    const width = Math.max(
+        s.length - prefixS.length,
+        e.length - prefixE.length
+    );
+
+    const out = [];
+    for (let i = numS; i <= numE; i++) {
+        out.push(prefixS + String(i).padStart(width, "0"));
+    }
+    return out;
 }
 
-/* ============================================================
- * 表格渲染
- * ============================================================ */
 
-function renderUsageTable(rows) {
-  const tbody = document.getElementById("usageTable");
-  if (!tbody) return;
-  tbody.innerHTML = "";
-
-  if (!rows.length) {
-    tbody.innerHTML = `
-      <tr><td colspan="7" class="text-center py-3 text-gray-400">
-        沒有資料
-      </td></tr>`;
-    return;
-  }
-
-  rows.forEach(row => {
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td class="py-2 pr-4">${row.used_at || ""}</td>
-      <td class="py-2 pr-4">${row.fixture_id}</td>
-      <td class="py-2 pr-4">${row.station_id}</td>
-      <td class="py-2 pr-4 text-right">${row.use_count}</td>
-      <td class="py-2 pr-4">${row.abnormal_status || "-"}</td>
-      <td class="py-2 pr-4">${row.operator || "-"}</td>
-      <td class="py-2 pr-4">
-        <button class="btn btn-ghost text-xs text-red-600"
-                onclick="deleteUsageLog(${row.id})">
-          刪除
-        </button>
-      </td>
-    `;
-    tbody.appendChild(tr);
-  });
-}
-
-/* ============================================================
- * 分頁
- * ============================================================ */
-
-function renderUsagePagination(total) {
-  const box = document.getElementById("usagePagination");
-  if (!box) return;
-
-  const pages = Math.ceil(total / usagePageSize);
-  box.innerHTML = "";
-
-  if (pages <= 1) return;
-
-  for (let i = 1; i <= pages; i++) {
-    const btn = document.createElement("button");
-    btn.className = `btn btn-sm ${i === usagePage ? "btn-primary" : "btn-outline"}`;
-    btn.textContent = i;
-    btn.onclick = () => { usagePage = i; loadUsageLogs(); };
-    box.appendChild(btn);
-  }
-}
-
-/* ============================================================
- * 新增使用紀錄
- * ============================================================ */
+////////////////////////////
+// 新增使用紀錄 (POST)
+////////////////////////////
 
 async function submitUsageLog() {
-  const customer_id = getCurrentCustomerId();
-  if (!customer_id) return toast("請先選擇客戶");
+    const fixture_id = fxInput.value.trim();
+    const model_id   = modelInput.value.trim();
+    const station_id = stationInput.value.trim();
+    const level      = levelSelect.value;
 
-  const fixtureId = document.getElementById("usageAddFixture").value.trim();
-  const stationId = document.getElementById("usageAddStation").value.trim();
-  const count = Number(document.getElementById("usageAddCount").value);
-  const abnormal = document.getElementById("usageAddAbnormal").value.trim();
-  const operator = document.getElementById("usageAddOperator").value.trim();
-  const note = document.getElementById("usageAddNote").value.trim();
-  const usedAt = document.getElementById("usageAddTime").value;
+    if (!fixture_id) return toast("請輸入治具編號");
+    if (!model_id)   return toast("請輸入機種 ID");
+    if (!station_id) return toast("請選擇站點");
 
-  if (!fixtureId) return toast("治具 ID 不得為空");
-  if (!stationId) return toast("站點不得為空");
+    const use_count = Number(countInput.value) || 1;
+    if (use_count <= 0) return toast("使用次數需大於 0");
 
-  const payload = {
-    customer_id,
-    fixture_id: fixtureId,
-    station_id: stationId,
-    use_count: count || 1,
-    abnormal_status: abnormal || null,
-    operator: operator || null,
-    note: note || null,
-    used_at: usedAt ? new Date(usedAt).toISOString() : null
-  };
+    const operator = operatorInput.value.trim() || window.currentUserName;
+    const used_at  = usedAtInput.value ? new Date(usedAtInput.value) : new Date();
+    const note     = noteInput.value.trim();
 
-  try {
-    await apiCreateUsageLog(payload);
-    toast("新增使用紀錄成功");
-    toggleUsageAdd(false);
-    loadUsageLogs();
-  } catch (err) {
-    console.error(err);
-    toast("新增失敗", "error");
-  }
+    let serials = null;
+
+    // 個別序號
+    if (level === "individual") {
+        serials = parseIndividualSerials(serialsInput.value);
+        if (!serials.length) return toast("請輸入序號");
+    }
+
+    // 批量序號
+    if (level === "batch") {
+        try {
+            serials = expandBatchSerials(batchStart.value, batchEnd.value);
+        } catch (err) {
+            console.error(err);
+            return toast(err.message, "error");
+        }
+        if (!serials.length) return toast("批量序號解析失敗");
+    }
+
+    const payload = {
+        record_level: level,   // ★ 改這裡
+        fixture_id,
+        model_id,
+        station_id,
+        use_count,
+        operator,
+        used_at,
+        note,
+        serials,
+    };
+
+
+    try {
+        const res = await api("/usage", {
+            method: "POST",
+            body: payload,
+        });
+
+        toast("使用紀錄新增成功");
+        loadUsageLogs();
+        toggleUsageAdd(false);
+
+    } catch (err) {
+        console.error(err);
+        toast("新增使用紀錄失敗", "error");
+    }
 }
 
-/* ============================================================
- * 刪除
- * ============================================================ */
+window.submitUsageLog = submitUsageLog;
 
-async function deleteUsageLog(id) {
-  if (!confirm("確認刪除？")) return;
 
-  const customer_id = getCurrentCustomerId();
-  if (!customer_id) return;
+////////////////////////////
+// 查詢使用紀錄
+////////////////////////////
 
-  try {
-    await apiDeleteUsageLog({ customer_id, id });
-    toast("刪除成功");
-    loadUsageLogs();
-  } catch (err) {
-    console.error(err);
-    toast("刪除失敗", "error");
-  }
+async function loadUsageLogs() {
+    const fixture = document.getElementById("usageSearchFixture").value.trim();
+    const serial  = document.getElementById("usageSearchSerial")?.value.trim();
+    const station = document.getElementById("usageSearchStation")?.value.trim();
+    const operator = document.getElementById("usageSearchOperator")?.value.trim();
+    const model = document.getElementById("usageSearchModel")?.value.trim();
+
+    const params = {};
+    if (fixture) params.fixture_id = fixture;
+    if (serial)  params.serial_number = serial;
+    if (station) params.station_id = station;
+    if (operator) params.operator = operator;
+    if (model)   params.model_id = model;
+
+    try {
+        const rows = await api("/usage", { params });
+        renderUsageTable(rows);
+    } catch (err) {
+        console.error(err);
+        toast("查詢使用紀錄失敗", "error");
+    }
 }
 
-/* ============================================================
- * 匯入 Excel (.xlsx)
- * ============================================================ */
+window.loadUsageLogs = loadUsageLogs;
 
-async function handleUsageImport(input) {
-  if (!input.files.length) return;
 
-  const customer_id = getCurrentCustomerId();
-  if (!customer_id) return toast("請先選擇客戶");
+////////////////////////////
+// 使用紀錄表格
+////////////////////////////
 
-  try {
-    toast("正在匯入...");
-    const result = await apiImportUsageLogsXlsx(input.files[0], customer_id);
-    toast(result.message || "匯入成功");
-    loadUsageLogs();
-  } catch (err) {
-    console.error(err);
-    toast("匯入失敗", "error");
-  }
+function renderUsageTable(rows) {
+    usageTableBody.innerHTML = "";
 
-  input.value = "";
+    if (!rows.length) {
+        usageTableBody.innerHTML = `
+            <tr><td colspan="9" class="text-center text-gray-400 py-3">沒有資料</td></tr>
+        `;
+        return;
+    }
+
+    rows.forEach(r => {
+        const tr = document.createElement("tr");
+
+        tr.innerHTML = `
+            <td class="py-2 pr-4">${r.used_at || "-"}</td>
+            <td class="py-2 pr-4">${r.fixture_id}</td>
+            <td class="py-2 pr-4">${r.serial_number ?? "-"}</td>
+            <td class="py-2 pr-4">${r.station_name ?? r.station_id ?? "-"}</td>
+            <td class="py-2 pr-4">${r.model_name ?? r.model_id ?? "-"}</td>
+            <td class="py-2 pr-4">${r.use_count}</td>
+            <td class="py-2 pr-4">${r.operator}</td>
+            <td class="py-2 pr-4">${r.note ?? "-"}</td>
+            <td class="py-2 pr-4">
+                <button class="btn btn-xs btn-error" onclick="deleteUsage(${r.id})">
+                    刪除
+                </button>
+            </td>
+        `;
+
+        usageTableBody.appendChild(tr);
+    });
 }
 
-/* ============================================================
- * 新增表單顯示/隱藏
- * ============================================================ */
 
+////////////////////////////
+// 刪除紀錄
+////////////////////////////
+
+async function deleteUsage(id) {
+    if (!confirm("確定要刪除此使用紀錄？")) return;
+
+    try {
+        await api(`/usage/${id}`, {
+            method: "DELETE",
+            params: { delete_zero_summary: true }
+        });
+
+        toast("已刪除");
+        loadUsageLogs();
+
+    } catch (err) {
+        console.error(err);
+        toast("刪除失敗", "error");
+    }
+}
+
+window.deleteUsage = deleteUsage;
+/* ============================================================
+   🔵 使用記錄 / 更換記錄 TAB 切換控制 (v4.0)
+   ============================================================ */
+document.querySelectorAll(".subtab").forEach(btn => {
+  btn.addEventListener("click", () => {
+    const target = btn.dataset.logtab;   // usage / replacement
+
+    // 1️⃣ 切換 active 樣式
+    document.querySelectorAll(".subtab").forEach(b =>
+      b.classList.remove("subtab-active")
+    );
+    btn.classList.add("subtab-active");
+
+    // 2️⃣ 切換顯示內容
+    document.getElementById("logtab-usage").classList.add("hidden");
+    document.getElementById("logtab-replacement").classList.add("hidden");
+
+    if (target === "usage") {
+      document.getElementById("logtab-usage").classList.remove("hidden");
+    } else if (target === "replacement") {
+      document.getElementById("logtab-replacement").classList.remove("hidden");
+    }
+  });
+});
+
+/* ============================================================
+   🔵 使用記錄：新增表單顯示 / 隱藏
+   ============================================================ */
 function toggleUsageAdd(show) {
-  document.getElementById("usageAddForm")?.classList.toggle("hidden", !show);
+    const form = document.getElementById("usageAddForm");
+    if (!form) return;
+
+    if (show) {
+        form.classList.remove("hidden");
+    } else {
+        form.classList.add("hidden");
+    }
 }
+
+window.toggleUsageAdd = toggleUsageAdd;   // ← ★ 確保 onclick 能找到

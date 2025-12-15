@@ -1,259 +1,143 @@
-# backend/app/database.py
 """
-資料庫連接管理模組
-提供資料庫連接、CRUD 操作和上下文管理器
+資料庫連接池（DBUtils + PyMySQL）
+--------------------------------
+支援：
+- 自動重連
+- 連線池 (PooledDB)
+- Stored Procedure (CALL)
+- SP OUT 參數讀取
+- execute_query / insert / update / delete
 """
-import pymysql.cursors
+
+from dbutils.pooled_db import PooledDB
 import pymysql
-import time
-from contextlib import contextmanager
-from typing import Optional, Dict, List, Any, Tuple
+from typing import Any, Dict, List, Tuple, Optional
 from backend.config import settings
 
 
 class Database:
-    """資料庫管理類"""
-
     def __init__(self):
-        self.connection = None
-        self.connect()
+        # 正式連線池（cursorclass 不能放這邊）
+        self.pool = PooledDB(
+            creator=pymysql,
+            maxconnections=20,
+            mincached=2,
+            maxcached=5,
+            blocking=True,
+            ping=1,  # 1 = check connection before use
+            host=settings.DB_HOST,
+            port=settings.DB_PORT,
+            user=settings.DB_USER,
+            password=settings.DB_PASS,
+            database=settings.DB_NAME,
+            charset="utf8mb4",
+            autocommit=False
+        )
 
-    def connect(self, max_retries: int = 10, retry_delay: int = 2):
-        """
-        建立資料庫連接，支援自動重試
+    # --------------------------------------------------------
+    # 基礎方法：取得連線
+    # --------------------------------------------------------
+    def get_conn(self):
+        return self.pool.connection()
 
-        Args:
-            max_retries: 最大重試次數
-            retry_delay: 重試間隔（秒）
-        """
-        for attempt in range(max_retries):
-            try:
-                self.connection = pymysql.connect(
-                    host=settings.DB_HOST,
-                    port=settings.DB_PORT,
-                    user=settings.DB_USER,
-                    password=settings.DB_PASS,
-                    database=settings.DB_NAME,
-                    charset='utf8mb4',
-                    cursorclass=pymysql.cursors.DictCursor,
-                    autocommit=False
-                )
-                print(f"✅ 資料庫連接成功 ({settings.DB_HOST}:{settings.DB_PORT}/{settings.DB_NAME})")
-                return
-            except pymysql.Error as e:
-                if attempt < max_retries - 1:
-                    print(f"⚠️  資料庫連接失敗 (第 {attempt + 1} 次)，{retry_delay} 秒後重試...")
-                    time.sleep(retry_delay)
-                else:
-                    print(f"❌ 資料庫連接失敗：{e}")
-                    raise
-
-    def check_connection(self) -> bool:
-        """
-        檢查資料庫連線狀態（不使用 get_cursor，避免遞迴）
-        """
+    # --------------------------------------------------------
+    # Query Methods
+    # --------------------------------------------------------
+    def execute_query(self, sql: str, params: Optional[Tuple] = None) -> List[Dict[str, Any]]:
+        conn = self.get_conn()
         try:
-            if self.connection is None:
-                return False
-            # ping(reconnect=False) 只檢查，不自動重連；我們由 ensure_connection 統一負責重連
-            self.connection.ping(reconnect=False)
+            with conn.cursor(pymysql.cursors.DictCursor) as cursor:
+                cursor.execute(sql, params or ())
+                return cursor.fetchall()
+        finally:
+            conn.close()
+
+    def execute_one(self, sql: str, params: Optional[Tuple] = None) -> Optional[Dict[str, Any]]:
+        conn = self.get_conn()
+        try:
+            with conn.cursor(pymysql.cursors.DictCursor) as cursor:
+                cursor.execute(sql, params or ())
+                return cursor.fetchone()
+        finally:
+            conn.close()
+
+    def execute_update(self, sql: str, params: Optional[Tuple] = None) -> int:
+        conn = self.get_conn()
+        try:
+            with conn.cursor() as cursor:
+                affected = cursor.execute(sql, params or ())
+            conn.commit()
+            return affected
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    def execute_insert(self, sql: str, params: Optional[Tuple] = None) -> int:
+        conn = self.get_conn()
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute(sql, params or ())
+                new_id = cursor.lastrowid
+            conn.commit()
+            return new_id
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    # --------------------------------------------------------
+    # Stored Procedure with OUT parameters
+    # --------------------------------------------------------
+    def call_sp_with_out(self, proc_name: str, args: list, out_names: list):
+        """
+        呼叫 SP，例如：
+            CALL sp_insert_usage_log(%s,%s,...,@o_count,@o_msg)
+
+        out_names = ["o_inserted_count", "o_message"]
+        """
+        conn = self.get_conn()
+        try:
+            cursor = conn.cursor(pymysql.cursors.DictCursor)
+
+            # 初始化 OUT 參數
+            for out_name in out_names:
+                cursor.execute(f"SET @{out_name} = NULL;")
+
+            # 組 CALL 語句
+            placeholders = ",".join(["%s"] * len(args))
+            out_placeholders = ",".join([f"@{name}" for name in out_names])
+            call_sql = f"CALL {proc_name}({placeholders},{out_placeholders});"
+
+            cursor.execute(call_sql, args)
+
+            # 取得 OUT 參數
+            out_sql = "SELECT " + ",".join([f"@{name} AS {name}" for name in out_names])
+            cursor.execute(out_sql)
+            out_data = cursor.fetchone()
+
+            conn.commit()
+            return out_data
+
+        except Exception as e:
+            conn.rollback()
+            raise e
+
+        finally:
+            cursor.close()
+            conn.close()
+
+    def check_connection(self):
+        """測試是否能成功取得連線（給 startup event 使用）"""
+        try:
+            conn = self.get_conn()
+            conn.close()
             return True
         except Exception:
             return False
 
-    def ensure_connection(self):
-        """確保資料庫連接正常，如果斷開則重新連接（不進入遞迴）"""
-        try:
-            if self.connection is None:
-                self.connect()
-                return
-            # 試著檢查連線；失敗就重連
-            self.connection.ping(reconnect=False)
-        except Exception:
-            print("⚠️  資料庫連接已斷開，嘗試重新連接...")
-            self.connect()
 
-    @contextmanager
-    def get_cursor(self):
-        """
-        提供資料庫游標的上下文管理器
-
-        Yields:
-            pymysql.cursors.DictCursor: 資料庫游標
-        """
-        self.ensure_connection()
-        cursor = self.connection.cursor(pymysql.cursors.DictCursor)  # Returns dict
-        try:
-            yield cursor
-            self.connection.commit()
-        except Exception as e:
-            self.connection.rollback()
-            raise e
-        finally:
-            cursor.close()
-
-    def execute_query(
-        self,
-        query: str,
-        params: Optional[Tuple] = None
-    ) -> List[Dict[str, Any]]:
-        """
-        執行查詢並返回結果
-
-        Args:
-            query: SQL 查詢語句
-            params: 查詢參數
-
-        Returns:
-            List[Dict]: 查詢結果列表
-        """
-        with self.get_cursor() as cursor:
-            cursor.execute(query, params or ())
-            return cursor.fetchall()
-
-    def execute_one(
-        self,
-        query: str,
-        params: Optional[Tuple] = None
-    ) -> Optional[Dict[str, Any]]:
-        """
-        執行查詢並返回單一結果
-
-        Args:
-            query: SQL 查詢語句
-            params: 查詢參數
-
-        Returns:
-            Optional[Dict]: 查詢結果或 None
-        """
-        with self.get_cursor() as cursor:
-            cursor.execute(query, params or ())
-            return cursor.fetchone()
-
-    def execute_update(
-        self,
-        query: str,
-        params: Optional[Tuple] = None
-    ) -> int:
-        """
-        執行更新操作
-
-        Args:
-            query: SQL 更新語句
-            params: 更新參數
-
-        Returns:
-            int: 影響的行數
-        """
-        with self.get_cursor() as cursor:
-            affected_rows = cursor.execute(query, params or ())
-            return affected_rows
-
-    def execute_insert(self, query: str, params: Optional[Tuple] = None) -> int:
-        """
-        執行原生 SQL 的 INSERT 並回傳 lastrowid
-        """
-        with self.get_cursor() as cursor:
-            cursor.execute(query, params or ())
-            return cursor.lastrowid
-
-    def insert(
-        self,
-        table: str,
-        data: Dict[str, Any]
-    ) -> int:
-        """
-        插入資料並返回 ID
-
-        Args:
-            table: 表格名稱
-            data: 要插入的資料字典
-
-        Returns:
-            int: 新插入記錄的 ID
-        """
-        columns = ', '.join(data.keys())
-        placeholders = ', '.join(['%s'] * len(data))
-        query = f"INSERT INTO {table} ({columns}) VALUES ({placeholders})"
-
-        with self.get_cursor() as cursor:
-            cursor.execute(query, tuple(data.values()))
-            return cursor.lastrowid
-
-    def update(
-        self,
-        table: str,
-        data: Dict[str, Any],
-        where: Dict[str, Any]
-    ) -> int:
-        """
-        更新資料
-
-        Args:
-            table: 表格名稱
-            data: 要更新的資料字典
-            where: WHERE 條件字典
-
-        Returns:
-            int: 影響的行數
-        """
-        set_clause = ', '.join([f"{k} = %s" for k in data.keys()])
-        where_clause = ' AND '.join([f"{k} = %s" for k in where.keys()])
-        query = f"UPDATE {table} SET {set_clause} WHERE {where_clause}"
-
-        with self.get_cursor() as cursor:
-            params = tuple(data.values()) + tuple(where.values())
-            return cursor.execute(query, params)
-
-    def delete(
-        self,
-        table: str,
-        where: Dict[str, Any]
-    ) -> int:
-        """
-        刪除資料
-
-        Args:
-            table: 表格名稱
-            where: WHERE 條件字典
-
-        Returns:
-            int: 影響的行數
-        """
-        where_clause = ' AND '.join([f"{k} = %s" for k in where.keys()])
-        query = f"DELETE FROM {table} WHERE {where_clause}"
-
-        with self.get_cursor() as cursor:
-            return cursor.execute(query, tuple(where.values()))
-
-    def get_table_list(self) -> List[str]:
-        """
-        獲取資料庫中所有表格名稱
-
-        Returns:
-            List[str]: 表格名稱列表
-        """
-        query = "SHOW TABLES"
-        results = self.execute_query(query)
-        # 表格名稱在結果的第一個值中
-        return [list(row.values())[0] for row in results]
-
-    def get_mysql_version(self) -> str:
-        """
-        獲取 MySQL 版本
-
-        Returns:
-            str: MySQL 版本號
-        """
-        result = self.execute_one("SELECT VERSION() as version")
-        return result['version'] if result else "Unknown"
-
-    def close(self):
-        """關閉資料庫連接"""
-        if self.connection:
-            self.connection.close()
-            print("✅ 資料庫連接已關閉")
-
-
-# 建立全域資料庫實例
+# 全域 DB 實例
 db = Database()

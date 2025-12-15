@@ -468,3 +468,41 @@ async def get_model_detail(
         "requirements": requirements,
         "capacity": capacity,
     }
+# --------------------------------------------------------------
+# 🔟 取得某治具可使用的站點列表（給 Usage v4.0 用）
+# --------------------------------------------------------------
+
+@router.get("/stations-by-fixture/{fixture_id}", summary="查詢治具可使用的站點列表")
+async def get_stations_by_fixture(
+    fixture_id: str,
+    customer_id: str = Query(...),
+    user=Depends(get_current_user)
+):
+
+    # 確保治具存在
+    row = db.execute_query(
+        "SELECT id FROM fixtures WHERE id=%s AND customer_id=%s",
+        (fixture_id, customer_id)
+    )
+    if not row:
+        raise HTTPException(404, "治具不存在")
+
+    # 查詢「綁定 model → model 綁定哪些站點」
+    sql = """
+        SELECT DISTINCT
+            ms.station_id,
+            s.station_name
+        FROM fixture_model_map fm        -- ★ fixture → model 對照表（你已建立）
+        JOIN model_stations ms
+            ON fm.customer_id = ms.customer_id
+           AND fm.model_id = ms.model_id
+        JOIN stations s
+            ON ms.station_id = s.id
+           AND ms.customer_id = s.customer_id
+        WHERE fm.customer_id=%s
+          AND fm.fixture_id=%s
+        ORDER BY ms.station_id
+    """
+
+    rows = db.execute_query(sql, (customer_id, fixture_id))
+    return rows

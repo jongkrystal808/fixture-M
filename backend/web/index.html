@@ -119,7 +119,7 @@
         <div class="card p-5">
           <div class="flex items-center justify-between">
             <h3 class="font-semibold">即將更換治具</h3>
-            <button class="btn btn-ghost text-xs" onclick="downloadCSV('upcoming.csv', mockUpcomingCSV())">匯出</button>
+            <button class="btn btn-ghost text-s" onclick="downloadCSV('upcoming.csv', mockUpcomingCSV())">匯出</button>
           </div>
           <div class="mt-3 space-y-2 max-h-40 overflow-auto" id="upcomingList"></div>
         </div>
@@ -156,11 +156,25 @@
     <section id="tab-receipts" class="hidden space-y-4">
 
       <!-- 子分頁 -->
-      <div class="flex gap-2">
-        <button class="subtab subtab-active" onclick="showTab('rtab-receipts')" data-rtab="receipts">收料登記</button>
-        <button class="subtab" onclick="showTab('rtab-returns')" data-rtab="returns">退料登記</button>
-        <button class="subtab" onclick="showTab('viewAllTab')">總檢視</button>
-      </div>
+        <div class="flex gap-2">
+          <button class="subtab subtab-active"
+                  onclick="showTab('rtab-receipts')"
+                  data-rtab="receipts">
+            收料登記
+          </button>
+
+          <button class="subtab"
+                  onclick="showTab('rtab-returns')"
+                  data-rtab="returns">
+            退料登記
+          </button>
+
+          <button class="subtab"
+                  onclick="showTab('viewAllTab')"
+                  data-rtab="viewall">   <!-- ★ 必須加這個 -->
+            總檢視
+          </button>
+        </div>
 
       <!-- ============================================================= -->
       <!-- 🔵 收料 TAB -->
@@ -170,48 +184,11 @@
         <div class="card p-5 space-y-4">
           <h3 class="font-semibold text-lg">收料登記</h3>
 
-          <!-- 查詢 -->
-          <div class="grid md:grid-cols-6 gap-3">
-            <div class="field">
-              <label class="label-xs">治具編號</label>
-              <input id="receiptSearchFixture" class="input" placeholder="治具編號">
-            </div>
-
-            <div class="field">
-              <label class="label-xs">單號</label>
-              <input id="receiptSearchOrder" class="input" placeholder="單號">
-            </div>
-
-            <div class="field">
-              <label class="label-xs">客戶</label>
-              <input id="receiptSearchVendor" class="input" placeholder="客戶">
-            </div>
-
-            <div class="field">
-              <label class="label-xs">操作人員</label>
-              <input id="receiptSearchOperator" class="input" placeholder="員工號">
-            </div>
-
-            <div class="field">
-              <label class="label-xs">序號</label>
-              <input id="receiptSearchSerial" class="input" placeholder="序號">
-            </div>
-
-            <div class="field">
-              <label class="label-xs">Datecode</label>
-              <input id="receiptSearchDatecode" class="input" placeholder="datecode">
-            </div>
-
-            <div class="flex items-end">
-              <button class="btn btn-primary w-full" onclick="loadReceipts()">查詢</button>
-            </div>
-          </div>
-
           <!-- 新增 / 匯入按鈕 -->
           <div class="flex gap-2 flex-wrap">
-            <button class="btn btn-primary" onclick="document.getElementById('receiptAddForm').classList.toggle('hidden')">
-                新增收料記錄</button>
-
+            <button class="btn bg-green-600 text-white hover:bg-green-500" onclick="toggleReturnAdd(true)">
+              新增收料記錄
+            </button>
             <label class="btn btn-ghost cursor-pointer">
               <input id="receiptXlsx" type="file" accept=".xlsx" class="hidden"
                      onchange="handleReceiptImport(this)" />
@@ -222,30 +199,30 @@
           </div>
 
           <!-- 新增表單 -->
-          <div id="receiptAddForm" class="hidden border rounded-2xl p-4 bg-gray-50 space-y-3">
+          <div id="receiptAddForm" class="border rounded-2xl p-4 bg-green-50 space-y-3">
 
             <div class="grid md:grid-cols-5 gap-3">
               <div class="field">
-                <label class="label-xs">客戶</label>
-                <input id="receiptAddVendor" class="input">
+                <label class="text-base font-semibold">客戶</label>
+                <input id="receiptAddVendor" class="input" placeholder="例：moxa, BNG">
               </div>
 
               <div class="field">
-                <label class="label-xs">單號</label>
-                <input id="receiptAddOrder" class="input">
+                <label class="text-base font-semibold">單號</label>
+                <input id="receiptAddOrder" class="input" placeholder="例:25123456">
               </div>
 
               <div class="field">
-                <label class="label-xs">治具編號</label>
-                <input id="receiptAddFixture" class="input">
+                <label class="text-base font-semibold">治具編號</label>
+                <input id="receiptAddFixture" class="input" placeholder="例：C-00001">
               </div>
 
               <div class="field">
-                <label class="label-xs">類型</label>
+                <label class="text-base font-semibold">類型</label>
                 <select id="receiptAddType" class="input">
-                  <option value="batch">批量（serial_start ~ serial_end）</option>
-                  <option value="individual">少量序號（serials）</option>
-                  <option value="datecode">日期碼 (Datecode + 數量)</option>  <!-- ★ 新增 -->
+                  <option value="batch">批量(e.g. 1~26)</option>
+                  <option value="individual">少量序號(serials)</option>
+                  <option value="datecode">Datecode + 數量</option>  <!-- ★ 新增 -->
                 </select>
               </div>
             </div>
@@ -253,46 +230,45 @@
             <!-- 批量：流水號起訖 -->
             <div id="receiptBatchArea" class="grid md:grid-cols-5 gap-3">
               <div class="field">
-                <label class="label-xs">序號起始</label>
+                <label class="text-base font-semibold">序號起始</label>
                 <input id="receiptAddStart" class="input">
               </div>
               <div class="field">
-                <label class="label-xs">序號結束</label>
+                <label class="text-base font-semibold">序號結束</label>
                 <input id="receiptAddEnd" class="input">
               </div>
             </div>
 
             <!-- 少量序號 -->
-            <div id="receiptIndividualArea" class="hidden">
-              <label class="label-xs">序號（逗號分隔）</label>
-              <input id="receiptAddSerials" class="input">
-            </div>
+            <div id="receiptIndividualArea" class="hidden grid md:grid-cols-5 gap-3">
+                <div class="field md:col-span-5">
+                  <label class="text-base font-semibold">序號(逗號分隔)</label>
+                  <input id="receiptAddSerials" class="input" placeholder="例如：SN001, SN002, SN003">
+                </div>
+                </div>
 
             <!-- 日期碼 -->
-            <div id="receiptDatecodeArea" class="hidden">
-              <div class="form-control">
-                <label class="label">
-                  <span class="label-text">日期碼 (Datecode)</span>
-                </label>
-                <input type="text" id="receiptAddDatecode" class="input input-bordered"
-                       placeholder="例如: 2024W12, 20241201, 2024Q1">
-                <label class="label">
-                  <span class="label-text-alt text-gray-400">
-                    系統會自動生成虛擬序號: datecode-001, datecode-002...
-                  </span>
-                </label>
+            <div id="receiptDatecodeArea" class="hidden grid md:grid-cols-5 gap-3">
+
+              <!-- 日期碼：占 2 格 -->
+              <div class="field md:col-span-1">
+                <label class="text-base font-semibold">Datecode</label>
+                <input type="text" id="receiptAddDatecode" class="input"
+                       placeholder="例如：2024W12, 20241201">
               </div>
-              <!-- 數量 -->
-              <div class="form-control mt-2">
-                <label class="label"><span class="label-text">數量</span></label>
-                <input type="number" id="receiptAddQuantity" class="input input-bordered"
-                       placeholder="例如: 50" min="1">
-              </div>
+              <!-- 數量：占 2 格 -->
+              <div class="field md:col-span-1">
+                <label class="text-base font-semibold">收料數量</label>
+                <input type="number" id="receiptAddQuantity" class="input"
+                       placeholder="例: 50" min="1">
             </div>
+                <!-- 空白：和批量一致（占 1 格） -->
+              <div class="md:col-span-1"></div>
+          </div>
 
                 <!-- 5. 來源類型選擇 (datecode 模式必填) -->
                 <div class="form-control mt-4">
-                  <label class="label">
+                  <label class="text-base font-semibold">
                     <span class="label-text">來源類型</span>
                   </label>
                   <select id="receiptAddSourceType" class="select select-bordered">
@@ -302,13 +278,51 @@
                 </div>
 
             <div class="field">
-              <label class="label-xs">備註</label>
+              <label class="text-base font-semibold">備註</label>
               <input id="receiptAddNote" class="input">
             </div>
 
             <div class="flex justify-end gap-2">
               <button class="btn btn-ghost" onclick="toggleReceiptAdd(false)">取消</button>
               <button class="btn btn-primary" onclick="submitReceipt()">提交</button>
+            </div>
+          </div>
+
+        <div class="border-t border-gray-300 my-4"></div>
+
+            <!-- 查詢 -->
+          <div class="grid md:grid-cols-9 gap-5">
+
+            <div class="field">
+              <input id="receiptSearchDate" class="input" placeholder="日期">
+            </div>
+
+            <div class="field">
+              <input id="receiptSearchFixture" class="input" placeholder="治具編號">
+            </div>
+
+            <div class="field">
+              <input id="receiptSearchVendor" class="input" placeholder="客戶">
+            </div>
+
+            <div class="field">
+              <input id="receiptSearchOrder" class="input" placeholder="單號">
+            </div>
+
+            <div class="field">
+              <input id="receiptSearchDatecode" class="input" placeholder="datecode">
+            </div>
+
+            <div class="field">
+              <input id="receiptSearchSerial" class="input" placeholder="序號">
+            </div>
+
+            <div class="field">
+              <input id="receiptSearchOperator" class="input" placeholder="操作人員">
+            </div>
+
+            <div class="flex items-end">
+                <button class="btn bg-gray-400 w-full" onclick="loadReceipts()">查詢</button>
             </div>
           </div>
 
@@ -340,52 +354,17 @@
       <!-- ============================================================= -->
       <!-- 🟠 退料 TAB -->
       <!-- ============================================================= -->
-      <div id="rtab-returns" class="hidden space-y-4">
+      <div id="rtab-returns" class="space-y-4">
 
         <div class="card p-5 space-y-4">
           <h3 class="font-semibold text-lg">退料登記</h3>
 
-          <!-- 查詢 -->
-          <div class="grid md:grid-cols-6 gap-3">
-            <div class="field">
-              <label class="label-xs">治具編號</label>
-              <input id="returnSearchFixture" class="input" placeholder="治具編號">
-            </div>
-
-            <div class="field">
-              <label class="label-xs">單號</label>
-              <input id="returnSearchOrder" class="input" placeholder="單號">
-            </div>
-
-            <div class="field">
-              <label class="label-xs">客戶</label>
-              <input id="returnSearchVendor" class="input" placeholder="客戶">
-            </div>
-
-            <div class="field">
-              <label class="label-xs">操作人員</label>
-              <input id="returnSearchOperator" class="input" placeholder="員工號">
-            </div>
-
-            <div class="field">
-              <label class="label-xs">序號</label>
-              <input id="returnSearchSerial" class="input" placeholder="序號">
-            </div>
-
-            <div class="field">
-              <label class="label-xs">Datecode</label>
-              <input id="returnSearchDatecode" class="input" placeholder="datecode">
-            </div>
-
-            <div class="flex items-end">
-              <button class="btn btn-primary w-full" onclick="loadReturns()">查詢</button>
-            </div>
-          </div>
-
           <!-- 新增 / 匯入 -->
           <div class="flex gap-2 flex-wrap">
-            <button class="btn btn-primary" onclick="toggleReturnAdd(true)">新增退料記錄</button>
-            <label class="btn btn-ghost cursor-pointer">
+            <button class="btn bg-blue-600 text-white hover:bg-blue-700" onclick="toggleReturnAdd(true)">
+              新增退料記錄</button>
+
+              <label class="btn btn-ghost cursor-pointer">
               <input id="returnXlsx" type="file" accept=".xlsx" class="hidden"
                      onchange="handleReturnImport(this)" />
               匯入 Excel(.xlsx)
@@ -395,30 +374,30 @@
           </div>
 
           <!-- 新增表單 -->
-          <div id="returnAddForm" class="hidden border rounded-2xl p-4 bg-gray-50 space-y-3">
+          <div id="returnAddForm" class="border rounded-2xl p-4 bg-blue-50 space-y-3">
 
-            <div class="grid md:grid-cols-5 gap-3">
+            <div class="grid md:grid-cols-5 gap-4">
               <div class="field">
-                <label class="label-xs">客戶</label>
-                <input id="returnAddVendor" class="input">
+                <label class="text-base font-semibold">客戶</label>
+                <input id="returnAddVendor" class="input" placeholder="例：moxa, BNG">
               </div>
 
               <div class="field">
-                <label class="label-xs">單號</label>
-                <input id="returnAddOrder" class="input">
+                <label class="text-base font-semibold">單號</label>
+                <input id="returnAddOrder" class="input" placeholder="例:25123456">
               </div>
 
               <div class="field">
-                <label class="label-xs">治具編號</label>
-                <input id="returnAddFixture" class="input">
+                <label class="text-base font-semibold">治具編號</label>
+                <input id="returnAddFixture" class="input" placeholder="例：C-00001">
               </div>
 
               <div class="field">
-                <label class="label-xs">類型</label>
+                <label class="text-base font-semibold">類型</label>
                 <select id="returnAddType" class="input">
-                  <option value="batch">批量（serial_start ~ serial_end）</option>
-                  <option value="individual">少量序號（serials）</option>
-                  <option value="datecode">日期碼 (Datecode + 數量)</option>  <!-- ★ 新增 -->
+                  <option value="batch">批量(e.g. 1~26)</option>
+                  <option value="individual">少量序號(serials)</option>
+                  <option value="datecode">Datecode + 數量</option>  <!-- ★ 新增 -->
                 </select>
               </div>
             </div>
@@ -426,50 +405,106 @@
             <!-- 批量：流水號起訖 -->
             <div id="returnBatchArea" class="grid md:grid-cols-5 gap-3">
               <div class="field">
-                <label class="label-xs">序號起始</label>
+                <label class="text-base font-semibold">序號起始</label>
                 <input id="returnAddStart" class="input">
               </div>
               <div class="field">
-                <label class="label-xs">序號結束</label>
+                <label class="text-base font-semibold">序號結束</label>
                 <input id="returnAddEnd" class="input">
               </div>
             </div>
 
-                <!-- 少量序號 -->
-                <div id="returnIndividualArea" class="hidden">
-                  <label class="label-xs">序號（逗號分隔）</label>
-                  <input id="returnAddSerials" class="input">
+            <!-- 少量序號 -->
+            <div id="returnIndividualArea" class="hidden grid md:grid-cols-5 gap-3">
+              <div class="field md:col-span-5">
+                <label class="text-base font-semibold">序號(逗號分隔)</label>
+                <input id="returnAddSerials" class="input" placeholder="例如：SN001, SN002, SN003">
+              </div>
+            </div>
+
+            <!-- 日期碼 -->
+            <div id="returnDatecodeArea" class="hidden grid md:grid-cols-5 gap-3">
+
+              <!-- 日期碼：占 2 格 -->
+              <div class="field md:col-span-1">
+                <label class="text-base font-semibold">Datecode</label>
+                <input type="text"
+                       id="returnAddDatecode"
+                       class="input"
+                       placeholder="例如：2024W12, 20241201">
+              </div>
+
+              <!-- 數量：占 2 格 -->
+              <div class="field md:col-span-1">
+                <label class="text-base font-semibold">退料數量</label>
+                <input type="number"
+                       id="returnAddQuantity"
+                       class="input"
+                       placeholder="例如：30" min="1">
+              </div>
+
+              <!-- 空白：和批量一致（占 1 格） -->
+              <div class="md:col-span-1"></div>
+
+            </div>
+              <!-- 5. 來源類型選擇 (datecode 模式必填) -->
+                <div class="form-control mt-4">
+                  <label class="text-base font-semibold">
+                    <span class="label-text">來源類型</span>
+                  </label>
+                  <select id="returnAddSourceType" class="select select-bordered">
+                    <option value="customer_supplied">客供</option>
+                    <option value="self_purchased">自購</option>
+                  </select>
                 </div>
 
-              <!-- 4. ★ 日期碼輸入區域 (新增) -->
-                <div id="returnDatecodeArea" class="hidden">
-                  <div class="form-control">
-                    <label class="label">
-                      <span class="label-text">日期碼 (Datecode)</span>
-                    </label>
-                    <input type="text" id="returnAddDatecode" class="input input-bordered"
-                           placeholder="例如: 2024W12, 20241201">
-                    <label class="label">
-                      <span class="label-text-alt text-gray-400">
-                        系統會自動找出對應日期碼的序號進行退料
-                      </span>
-                    </label>
-                  </div>
-                  <div class="form-control mt-2">
-                    <label class="label"><span class="label-text">退料數量</span></label>
-                    <input type="number" id="returnAddQuantity" class="input input-bordered"
-                           placeholder="例如: 30" min="1">
-                  </div>
-                </div>
+
 
             <div class="field">
-              <label class="label-xs">備註</label>
+              <label class="text-base font-semibold">備註</label>
               <input id="returnAddNote" class="input">
             </div>
 
             <div class="flex justify-end gap-2">
               <button class="btn btn-ghost" onclick="toggleReturnAdd(false)">取消</button>
               <button class="btn btn-primary" onclick="submitReturn()">提交</button>
+            </div>
+          </div>
+
+            <div class="border-t border-gray-300 my-4"></div>
+
+             <!-- 查詢 -->
+          <div class="grid md:grid-cols-9 gap-5">
+              <div class="field">
+              <input id="returnSearchDate" class="input" placeholder="日期">
+            </div>
+
+            <div class="field">
+              <input id="returnSearchFixture" class="input" placeholder="治具編號">
+            </div>
+
+            <div class="field">
+              <input id="returnSearchVendor" class="input" placeholder="客戶">
+            </div>
+
+            <div class="field">
+              <input id="returnSearchOrder" class="input" placeholder="單號">
+            </div>
+
+            <div class="field">
+              <input id="returnSearchDatecode" class="input" placeholder="datecode">
+            </div>
+
+            <div class="field">
+              <input id="returnSearchSerial" class="input" placeholder="序號">
+            </div>
+
+            <div class="field">
+              <input id="returnSearchOperator" class="input" placeholder="操作人員">
+            </div>
+
+            <div class="flex items-end">
+                <button class="btn bg-gray-400 w-full" onclick="loadReturns()">查詢</button>
             </div>
           </div>
 
@@ -507,33 +542,48 @@
 
             <div class="grid md:grid-cols-6 gap-3">
               <div class="field">
-                <label class="label-xs">治具編號</label>
+                <label class="text-base font-semibold">治具編號</label>
                 <input id="vaFixture" class="input" placeholder="治具編號">
               </div>
 
               <div class="field">
-                <label class="label-xs">Datecode</label>
+                <label class="text-base font-semibold">Datecode</label>
                 <input id="vaDatecode" class="input" placeholder="Datecode">
               </div>
 
               <div class="field">
-                <label class="label-xs">操作人員</label>
+                <label class="text-base font-semibold">操作人員</label>
                 <input id="vaOperator" class="input" placeholder="員工號">
               </div>
 
               <div class="field">
-                <label class="label-xs">類型</label>
+                <label class="text-base font-semibold">類型</label>
                 <select id="vaType" class="input">
                   <option value="">全部</option>
                   <option value="receipt">收料</option>
                   <option value="return">退料</option>
                 </select>
               </div>
+             </div>
+            <div class="flex gap-3">
 
-              <div class="flex items-end">
-                <button class="btn btn-primary w-full" onclick="loadTransactionViewAll()">查詢</button>
-              </div>
+              <button class="px-5 py-2 rounded-xl bg-[#0d1321] text-white font-semibold hover:opacity-90"
+                      onclick="loadTransactionViewAll()">
+                查詢
+              </button>
+
+              <button class="px-5 py-2 rounded-xl bg-[#0d1321] text-white font-semibold hover:opacity-90"
+                      onclick="exportSummary()">
+                匯出
+              </button>
+
+              <button class="px-5 py-2 rounded-xl bg-[#0d1321] text-white font-semibold hover:opacity-90"
+                      onclick="exportSummaryDetailed()">
+                匯出 (detailed)
+              </button>
+
             </div>
+
 
             <!-- 表格 -->
             <div class="overflow-auto">
@@ -554,9 +604,7 @@
 
                 <tbody id="viewAllTableBody"></tbody>
               </table>
-
-              <!-- 可選：如果你要做分頁可加 -->
-              <div id="viewAllPagination" class="flex mt-4 justify-center"></div>
+              <div id="viewAllPagination" class="flex gap-2 mt-3 justify-center"></div>
             </div>
           </div>
         </div>
@@ -664,7 +712,6 @@
               <!-- ====================================================== -->
               <div id="msNoModelHint"
                    class="text-center text-gray-500 py-5">
-                🔍 請先選擇一個機種，才能進行站點綁定與治具需求設定
               </div>
 
               <div id="msContent" class="hidden grid grid-cols-2 gap-6 mt-4">
@@ -894,9 +941,9 @@
       <div class="card p-5 space-y-4">
         <h3 class="font-semibold">報廢原因登記</h3>
         <div class="grid md:grid-cols-6 gap-3">
-          <div class="field"><label class="label-xs">治具編號</label><select id="scrapFixture" class="input"></select></div>
-          <div class="field"><label class="label-xs">報廢日期</label><input id="scrapDate" type="date" class="input" /></div>
-          <div class="field"><label class="label-xs">損壞原因</label>
+          <div class="field"><label class="label-s">治具編號</label><select id="scrapFixture" class="input"></select></div>
+          <div class="field"><label class="label-s">報廢日期</label><input id="scrapDate" type="date" class="input" /></div>
+          <div class="field"><label class="label-s">損壞原因</label>
             <select id="scrapReason" class="input">
               <option>正常磨損</option>
               <option>材質問題</option>
@@ -917,7 +964,8 @@
       </div>
     </section>
 
-       <!-- 使用 / 更換記錄 -->
+
+    <!--  使用 / 更換記錄  -->
     <section id="tab-logs" class="hidden space-y-4">
 
       <!-- 子分頁 -->
@@ -926,42 +974,49 @@
         <button class="subtab" data-logtab="replacement">更換記錄</button>
       </div>
 
-      <!-- ================================ -->
-      <!-- 🔵 使用記錄 TAB -->
-      <!-- ================================ -->
+      <!-- ========================================================= -->
+      <!-- 🔵 使用記錄 TAB v4.0 -->
+      <!-- ========================================================= -->
       <div id="logtab-usage" class="space-y-4">
-
         <div class="card p-5 space-y-4">
+
           <h3 class="font-semibold text-lg">使用記錄</h3>
 
           <!-- 查詢區 -->
           <div class="grid md:grid-cols-6 gap-3">
+
             <div class="field">
               <label class="label-xs">治具</label>
-              <input id="usageSearchFixture" class="input" placeholder="治具編號" />
+              <input id="usageSearchFixture" class="input" placeholder="治具 ID" />
             </div>
+
+            <div class="field">
+              <label class="label-xs">序號</label>
+              <input id="usageSearchSerial" class="input" placeholder="SN..." />
+            </div>
+
             <div class="field">
               <label class="label-xs">站點 ID</label>
-              <input id="usageSearchStation" class="input" type="number" placeholder="站點 ID" />
+              <input id="usageSearchStation" class="input" placeholder="T1_MP" />
             </div>
+
+            <div class="field">
+              <label class="label-xs">機種 ID</label>
+              <input id="usageSearchModel" class="input" placeholder="EDS-2008" />
+            </div>
+
             <div class="field">
               <label class="label-xs">操作人員</label>
               <input id="usageSearchOperator" class="input" placeholder="員工號" />
             </div>
-            <div class="field">
-              <label class="label-xs">日期起</label>
-              <input id="usageSearchFrom" type="datetime-local" class="input" />
-            </div>
-            <div class="field">
-              <label class="label-xs">日期迄</label>
-              <input id="usageSearchTo" type="datetime-local" class="input" />
-            </div>
+
             <div class="flex items-end">
               <button class="btn btn-primary w-full" onclick="loadUsageLogs()">查詢</button>
             </div>
+
           </div>
 
-          <!-- 新增 / 批量 / 匯入按鈕 -->
+          <!-- 新增 / 匯入 -->
           <div class="flex gap-2 flex-wrap">
             <button class="btn btn-primary" onclick="toggleUsageAdd(true)">新增使用記錄</button>
 
@@ -978,47 +1033,69 @@
           <div id="usageAddForm" class="hidden border rounded-2xl p-4 bg-gray-50 space-y-3">
 
             <div class="grid md:grid-cols-6 gap-3">
+
               <div class="field">
-                <label class="label-xs">治具編號</label>
+                <label class="label-xs">治具 ID *</label>
                 <input id="usageAddFixture" class="input" />
               </div>
 
               <div class="field">
-                <label class="label-xs">站點 ID</label>
-                <input id="usageAddStation" class="input" type="number" />
+                <label class="label-xs">機種 ID *</label>
+                <input id="usageAddModel" class="input" />
               </div>
 
               <div class="field">
-                <label class="label-xs">使用次數</label>
+                <label class="label-xs">站點 ID *</label>
+                <input id="usageAddStation" class="input" />
+              </div>
+
+              <div class="field">
+                <label class="label-xs">使用次數 *</label>
                 <input id="usageAddCount" type="number" class="input" value="1" />
               </div>
 
               <div class="field">
-                <label class="label-xs">異常狀態</label>
-                <input id="usageAddAbnormal" class="input" />
-              </div>
-
-              <div class="field">
                 <label class="label-xs">操作人員</label>
-                <input id="usageAddOperator" class="input" />
+                <input id="usageAddOperator" class="input" placeholder="預設登入者" />
               </div>
 
               <div class="field">
                 <label class="label-xs">使用時間</label>
                 <input id="usageAddTime" type="datetime-local" class="input" />
               </div>
+
+            </div>
+
+            <!-- Record Level -->
+            <div class="grid md:grid-cols-6 gap-3">
+
+              <div class="field">
+                <label class="label-xs">記錄層級 *</label>
+                <select id="usageAddLevel" class="input" onchange="toggleUsageSerialInputs()">
+                  <option value="fixture">治具層級</option>
+                  <option value="individual">個別序號</option>
+                  <option value="batch">批量序號</option>
+                </select>
+              </div>
+
+              <div id="usageSerialSingleField" class="field hidden">
+                <label class="label-xs">序號(逗號分隔)</label>
+                <input id="usageAddSerials" class="input" placeholder="SN001, SN002..." />
+              </div>
+
+              <div id="usageSerialBatchField" class="field hidden">
+                <label class="label-xs">批量起訖</label>
+                <div class="flex gap-2">
+                  <input id="usageAddSerialStart" class="input" placeholder="SN001" />
+                  <input id="usageAddSerialEnd" class="input" placeholder="SN100" />
+                </div>
+              </div>
+
             </div>
 
             <div class="field">
               <label class="label-xs">備註</label>
               <input id="usageAddNote" class="input" />
-            </div>
-
-            <div class="grid md:grid-cols-6 gap-3">
-              <div class="field">
-                <label class="label-xs">批量筆數（如不批量留空）</label>
-                <input id="usageAddBatch" type="number" class="input" />
-              </div>
             </div>
 
             <div class="flex justify-end gap-2">
@@ -1034,9 +1111,10 @@
               <tr>
                 <th class="py-2 pr-4">日期</th>
                 <th class="py-2 pr-4">治具</th>
+                <th class="py-2 pr-4">序號</th>
                 <th class="py-2 pr-4">站點</th>
+                <th class="py-2 pr-4">機種</th>
                 <th class="py-2 pr-4">次數</th>
-                <th class="py-2 pr-4">異常</th>
                 <th class="py-2 pr-4">操作人員</th>
                 <th class="py-2 pr-4">備註</th>
                 <th class="py-2 pr-4">刪除</th>
@@ -1049,38 +1127,49 @@
         </div>
       </div>
 
-      <!-- ================================ -->
-      <!-- 🟠 更換記錄 TAB -->
-      <!-- ================================ -->
+      <!-- ========================================================= -->
+      <!-- 🟠 更換記錄 TAB（支援序號 / 治具） -->
+      <!-- ========================================================= -->
       <div id="logtab-replacement" class="hidden space-y-4">
-
         <div class="card p-5 space-y-4">
+
           <h3 class="font-semibold text-lg">更換記錄</h3>
 
-          <!-- 查詢 -->
+          <!-- 查詢區 -->
           <div class="grid md:grid-cols-6 gap-3">
+
             <div class="field">
               <label class="label-xs">治具</label>
               <input id="replaceSearchFixture" class="input" />
             </div>
+
+            <div class="field">
+              <label class="label-xs">序號(serial 模式)</label>
+              <input id="replaceSearchSerial" class="input" />
+            </div>
+
             <div class="field">
               <label class="label-xs">執行人員</label>
               <input id="replaceSearchExec" class="input" />
             </div>
+
             <div class="field">
-              <label class="label-xs">更換日期起</label>
+              <label class="label-xs">日期起</label>
               <input id="replaceSearchFrom" type="date" class="input" />
             </div>
+
             <div class="field">
-              <label class="label-xs">更換日期迄</label>
+              <label class="label-xs">日期迄</label>
               <input id="replaceSearchTo" type="date" class="input" />
             </div>
+
             <div class="flex items-end">
-              <button class="btn btn-primary w-full" onclick="loadReplacementLogs()">查詢</button>
+              <button class="btn btn-primary w-full" onclick="loadNewReplacementLogs()">查詢</button>
             </div>
+
           </div>
 
-          <!-- 新增 / 批量 / 匯入 -->
+          <!-- 新增 / 匯入 -->
           <div class="flex gap-2 flex-wrap">
             <button class="btn btn-primary" onclick="toggleReplaceAdd(true)">新增更換記錄</button>
 
@@ -1098,21 +1187,38 @@
 
             <div class="grid md:grid-cols-5 gap-3">
               <div class="field">
-                <label class="label-xs">治具編號</label>
+                <label class="label-xs">治具 ID *</label>
                 <input id="replaceAddFixture" class="input" />
               </div>
+
               <div class="field">
-                <label class="label-xs">更換日期</label>
+                <label class="label-xs">更換日期 *</label>
                 <input id="replaceAddDate" type="date" class="input" />
               </div>
+
+              <div class="field">
+                <label class="label-xs">層級 *</label>
+                <select id="replaceAddLevel" class="input" onchange="toggleReplaceSerialField()">
+                  <option value="fixture">治具</option>
+                  <option value="serial">序號</option>
+                </select>
+              </div>
+
+              <div class="field hidden" id="replaceSerialField">
+                <label class="label-xs">序號</label>
+                <input id="replaceAddSerial" class="input" />
+              </div>
+
               <div class="field">
                 <label class="label-xs">原因</label>
                 <input id="replaceAddReason" class="input" />
               </div>
+
               <div class="field">
                 <label class="label-xs">執行人員</label>
                 <input id="replaceAddExecutor" class="input" />
               </div>
+
             </div>
 
             <div class="field">
@@ -1120,17 +1226,11 @@
               <input id="replaceAddNote" class="input" />
             </div>
 
-            <div class="grid md:grid-cols-5 gap-3">
-              <div class="field">
-                <label class="label-xs">批量筆數（如不批量留空）</label>
-                <input id="replaceAddBatch" type="number" class="input" />
-              </div>
-            </div>
-
             <div class="flex justify-end gap-2">
               <button class="btn btn-ghost" onclick="toggleReplaceAdd(false)">取消</button>
               <button class="btn btn-primary" onclick="submitReplacementLog()">提交</button>
             </div>
+
           </div>
 
           <!-- 表格 -->
@@ -1140,6 +1240,7 @@
               <tr>
                 <th class="py-2 pr-4">日期</th>
                 <th class="py-2 pr-4">治具</th>
+                <th class="py-2 pr-4">序號</th>
                 <th class="py-2 pr-4">原因</th>
                 <th class="py-2 pr-4">執行人員</th>
                 <th class="py-2 pr-4">備註</th>
@@ -1154,6 +1255,7 @@
       </div>
 
     </section>
+
 
 
     <!-- 後台管理(新增:子頁層) -->
@@ -1420,7 +1522,7 @@
       <!-- 機種資料維護（三段式） -->
       <div id="subtab-model" class="card p-5 space-y-3 hidden">
         <div class="flex items-center justify-between">
-          <h3 class="font-semibold">機種資料維護（三段式）</h3>
+          <h3 class="font-semibold">機種資料維護(三段式)</h3>
           <div class="flex items-center gap-2">
             <button class="btn btn-ghost" onclick="mmExportModelsCsv()">匯出機種</button>
             <button class="btn btn-primary" onclick="mmOpenModelModal('create')">新增機種</button>
@@ -1802,6 +1904,50 @@
             <!-- ================================ -->
 
             <script src="/js/app/app-main.js"></script>
+      <script>
+    /* ============================================================
+       🔵 使用記錄 / 更換記錄 TAB 切換控制 (v4.0)
+       ============================================================ */
+    document.addEventListener("DOMContentLoaded", () => {
+
+      const usageTab = document.getElementById("logtab-usage");
+      const replaceTab = document.getElementById("logtab-replacement");
+
+      const tabButtons = document.querySelectorAll(".subtab");
+
+      function switchLogTab(target) {
+        // ---- 1) subtab 樣式切換 ----
+        tabButtons.forEach(btn => {
+          if (btn.dataset.logtab === target) {
+            btn.classList.add("subtab-active");
+          } else {
+            btn.classList.remove("subtab-active");
+          }
+        });
+
+        // ---- 2) 區域顯示切換 ----
+        usageTab.classList.add("hidden");
+        replaceTab.classList.add("hidden");
+
+        if (target === "usage") {
+          usageTab.classList.remove("hidden");
+        } else if (target === "replacement") {
+          replaceTab.classList.remove("hidden");
+        }
+      }
+
+      // ---- 3) 事件註冊 ----
+      tabButtons.forEach(btn => {
+        btn.addEventListener("click", () => {
+          switchLogTab(btn.dataset.logtab);
+        });
+      });
+
+      // ---- 4) 預設顯示使用記錄 ----
+      switchLogTab("usage");
+    });
+    </script>
+
 
   </body>
 </html>

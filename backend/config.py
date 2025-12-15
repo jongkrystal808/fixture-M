@@ -79,16 +79,16 @@ class Settings:
         return f"mysql+pymysql://{self.DB_USER}:{self.DB_PASS}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}?charset=utf8mb4"
 
 
-def load_env_file(env_path: str = ".env"):
+def load_env_file(env_path: str = ".env_bk"):
     """
-    載入 .env 檔案 (僅用於本地開發)
+    載入 .env_bk 檔案 (僅用於本地開發)
 
     Args:
-        env_path: .env 檔案路徑
+        env_path: .env_bk 檔案路徑
     """
-    # Docker 環境中不需要載入 .env
+    # Docker 環境中不需要載入 .env_bk
     if os.getenv("ENVIRONMENT") in ["test", "production", "docker"]:
-        print("🐳 Docker 環境,跳過 .env 載入")
+        print("🐳 Docker 環境,跳過 .env_bk 載入")
         return
 
     env_file = Path(__file__).parent / env_path
@@ -116,7 +116,7 @@ def load_env_file(env_path: str = ".env"):
     print(f"✅ 已載入環境變數從 {env_path}")
 
 
-# 先載入 .env (如果不是 Docker 環境)
+# 先載入 .env_bk (如果不是 Docker 環境)
 load_env_file()
 
 # 建立全域配置實例

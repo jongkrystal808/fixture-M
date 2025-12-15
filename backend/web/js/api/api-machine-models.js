@@ -78,7 +78,7 @@ async function apiDeleteMachineModel(modelId) {
 }
 
 /* ============================================================
- * 🔵 機種 ↔ 站點 綁定 (model_stations)
+ * 🔵 機種 ↔ 站點 綁定
  * ============================================================ */
 async function apiListModelStations(modelId) {
   return api(`/model-detail/${encodeURIComponent(modelId)}`);

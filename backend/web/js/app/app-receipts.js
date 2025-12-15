@@ -133,6 +133,26 @@ function renderPagination(targetId, total, page, pageSize, onClick) {
   addBtn("›", page + 1, false, page === totalPages);
 }
 
+function formatSerialList(serials) {
+  if (!serials) return "-";
+
+  const arr = serials
+    .split(",")
+    .map(s => s.trim())
+    .filter(Boolean);
+
+  if (arr.length === 0) return "-";
+
+  // 序號很少就原樣顯示
+  if (arr.length <= 3) {
+    return arr.join(", ");
+  }
+
+  // 序號很多：顯示起訖 + 件數，例如：0111 ~ 0130 (20 件)
+  const first = arr[0];
+  const last = arr[arr.length - 1];
+  return `${first} ~ ${last} (${arr.length} 件)`;
+}
 
 /* ============================================================
  * 渲染收料表格(9 欄版 - 包含來源欄位)
@@ -152,11 +172,12 @@ function renderReceiptTable(rows) {
     // ★ 序號顯示邏輯
     let serialText = "-";
 
-    if (r.record_type === 'datecode') {
+    if (r.record_type === "datecode") {
       serialText = "-"; // datecode 不顯示序號
     } else if (r.serial_list) {
-      serialText = r.serial_list;
+      serialText = formatSerialList(r.serial_list);
     }
+
 
     // ★ datecode 顯示邏輯
     const datecodeText =
@@ -318,21 +339,26 @@ function toggleReceiptAdd(show) {
   const form = document.getElementById("receiptAddForm");
   if (!form) return;
 
+  // 👉 永遠保持展開（不再允許收起）
+  // if (!show) return;  // 直接阻止收起
+
   if (show) {
     form.classList.remove("hidden");
+
     const typeSel = document.getElementById("receiptAddType");
     if (typeSel) typeSel.value = "batch";
 
-    // 預設為客供
     const sourceTypeSel = document.getElementById("receiptAddSourceType");
     if (sourceTypeSel) sourceTypeSel.value = "customer_supplied";
 
     handleReceiptTypeChange();
   } else {
-    form.classList.add("hidden");
+    // 🔥 註解掉這一行：永不收起
+    // form.classList.add("hidden");
   }
 }
 window.toggleReceiptAdd = toggleReceiptAdd;
+
 
 /* ============================================================
  * 類型切換 batch / individual / datecode

@@ -19,8 +19,16 @@ let customerPageSize = 20;
  * ============================================================ */
 
 document.addEventListener("DOMContentLoaded", () => {
+
+  // 🔥 若頁面中沒有 customerTable → 不啟動 customers 模組
+  if (!document.getElementById("customerTable")) {
+    console.warn("Customer table not found — skip customers module init");
+    return;
+  }
+
   loadCustomers();
 });
+
 
 /* ============================================================
  * 載入客戶列表
@@ -52,6 +60,7 @@ async function loadCustomers() {
 
 function renderCustomerTable(rows) {
   const tbody = document.getElementById("customerTable");
+  if (!tbody) return;   // 避免 null crash
   tbody.innerHTML = "";
 
   if (!rows || rows.length === 0) {

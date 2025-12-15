@@ -415,7 +415,7 @@ window.formatTrans = formatTrans;
 
 
 /* ============================================================
- * 🟦 Model Detail Drawer（對應 model-detail v4.0）
+ * 🟦 Model Detail Drawer（v4.0 + Tabs + 站點分類）
  * ============================================================ */
 
 function closeModelDetail() {
@@ -436,97 +436,51 @@ async function openModelDetail(modelId) {
   box.innerHTML = `<div class="p-4 text-gray-500">載入中...</div>`;
 
   try {
-    // ⚠ 這裡使用的是「新」的 /model-detail/{model_id}/detail
-    // apiGetModelDetail 需在 api-model-detail.js 中實作
     const data = await apiGetModelDetail(modelId);
 
     const m = data.model;
     const stations = data.stations || [];
-    const fixtures = data.requirements || []; // ✅ v4.0: 從 requirements 來
+    const fixtures = data.requirements || [];
     const capacity = data.capacity || [];
 
+    /* ========== ★ 整個 Drawer 內容（含 Tabs） ========== */
     box.innerHTML = `
-      <section class="space-y-6">
+      <section class="space-y-4">
 
-        <!-- 基本資料 -->
-        <div>
-          <h3 class="text-lg font-semibold">基本資料</h3>
-          <div class="grid grid-cols-2 gap-2 text-sm mt-2">
-            <div><b>機種代碼：</b>${m.id}</div>
-            <div><b>名稱：</b>${m.model_name ?? "-"}</div>
-            <div><b>客戶：</b>${m.customer_id ?? "-"}</div>
-            <div class="col-span-2"><b>備註：</b>${m.note ?? "-"}</div>
-          </div>
+        <!-- TAB 列 -->
+        <div class="flex gap-2 border-b pb-2">
+          <button class="md-tab md-tab-active" data-tab="basicTab">基本資料</button>
+          <button class="md-tab" data-tab="stationsTab">綁定站點</button>
+          <button class="md-tab" data-tab="requirementsTab">治具需求</button>
+          <button class="md-tab" data-tab="capacityTab">最大可開站數</button>
         </div>
 
-        <!-- 綁定站點 -->
-        <div>
-          <h3 class="text-lg font-semibold">綁定站點</h3>
-          ${
-            stations.length
-              ? `<ul class="list-disc pl-6 text-sm">
-                   ${stations
-                     .map(
-                       (s) =>
-                         `<li>${s.station_id} - ${s.station_name || ""}</li>`
-                     )
-                     .join("")}
-                 </ul>`
-              : `<p class="text-gray-500 text-sm">無綁定站點</p>`
-          }
+        <!-- TAB 1：基本資料 -->
+        <div id="basicTab" class="md-tab-panel block">
+          ${renderBasicSection(m)}
         </div>
 
-        <!-- 治具需求 -->
-        <div>
-          <h3 class="text-lg font-semibold">每站治具需求</h3>
-          ${
-            fixtures.length
-              ? fixtures
-                  .map(
-                    (f) => `
-                <div class="border rounded-xl p-3 bg-gray-50 text-sm space-y-1">
-                  <div><b>站點：</b>${f.station_id}</div>
-                  <div><b>治具：</b>${f.fixture_id} - ${
-                      f.fixture_name || "-"
-                    }</div>
-                  <div><b>需求數量：</b>${f.required_qty}</div>
-                  <div><b>可用數量：</b>${f.available_qty ?? 0}</div>
-                </div>
-              `
-                  )
-                  .join("")
-              : `<p class="text-gray-500 text-sm">無治具需求</p>`
-          }
+        <!-- TAB 2：綁定站點 -->
+        <div id="stationsTab" class="md-tab-panel hidden">
+          ${renderStationsSection(stations)}
         </div>
 
-        <!-- 最大開站量 -->
-        <div>
-          <h3 class="text-lg font-semibold">最大可開站數</h3>
-          ${
-            capacity.length
-              ? capacity
-                  .map(
-                    (c) => `
-                <div class="border rounded-xl p-3 bg-green-50 text-sm space-y-1">
-                  <div><b>站點：</b>${c.station_id} ${
-                      c.station_name ? `- ${c.station_name}` : ""
-                    }</div>
-                  <div><b>最大可開：</b>${c.max_station} 站</div>
-                  <div class="text-xs text-gray-600">
-                    (瓶頸治具：${c.bottleneck_fixture_id}，可提供 ${
-                      c.bottleneck_qty
-                    })
-                  </div>
-                </div>
-              `
-                  )
-                  .join("")
-              : `<p class="text-gray-500 text-sm">未計算或無資料</p>`
-          }
+        <!-- TAB 3：治具需求（含站點分類） -->
+        <div id="requirementsTab" class="md-tab-panel hidden">
+          ${renderRequirementsSection(fixtures, stations)}
+        </div>
+
+        <!-- TAB 4：最大可開站 -->
+        <div id="capacityTab" class="md-tab-panel hidden">
+          ${renderCapacitySection(capacity)}
         </div>
 
       </section>
     `;
+
+    initModelDetailTabs();
+    initRequirementFilter(fixtures);
+
   } catch (err) {
     console.error("openModelDetail() failed:", err);
     box.innerHTML = `<div class="text-red-500 p-4">讀取失敗：${
@@ -534,5 +488,131 @@ async function openModelDetail(modelId) {
     }</div>`;
   }
 }
+
+window.openModelDetail = openModelDetail;
+
+/* ============================================================
+ * 🟦 Tabs 控制
+ * ============================================================ */
+function initModelDetailTabs() {
+  document.querySelectorAll(".md-tab").forEach(btn => {
+    btn.onclick = () => {
+      const target = btn.dataset.tab;
+
+      document.querySelectorAll(".md-tab").forEach(b =>
+        b.classList.remove("md-tab-active")
+      );
+      btn.classList.add("md-tab-active");
+
+      document
+        .querySelectorAll(".md-tab-panel")
+        .forEach(panel => panel.classList.add("hidden"));
+      document.getElementById(target).classList.remove("hidden");
+    };
+  });
+}
+
+/* ============================================================
+ * 🟦 渲染各區域
+ * ============================================================ */
+
+function renderBasicSection(m) {
+  return `
+    <h3 class="text-lg font-semibold">基本資料</h3>
+    <div class="grid grid-cols-2 gap-2 text-sm mt-2">
+      <div><b>機種代碼：</b>${m.id}</div>
+      <div><b>名稱：</b>${m.model_name ?? "-"}</div>
+      <div><b>客戶：</b>${m.customer_id ?? "-"}</div>
+      <div class="col-span-2"><b>備註：</b>${m.note ?? "-"}</div>
+    </div>
+  `;
+}
+
+function renderStationsSection(stations) {
+  return `
+    <h3 class="text-lg font-semibold">綁定站點</h3>
+    ${
+      stations.length
+        ? `<ul class="list-disc pl-6 text-sm">
+             ${stations
+               .map(s => `<li>${s.station_id} - ${s.station_name || ""}</li>`)
+               .join("")}
+           </ul>`
+        : `<p class="text-gray-500 text-sm">無綁定站點</p>`
+    }
+  `;
+}
+
+function renderRequirementsSection(fixtures, stations) {
+  /* 下拉選單 + 列表容器 */
+  return `
+    <h3 class="text-lg font-semibold mb-2">每站治具需求</h3>
+
+    <select id="mdStationFilter" class="select select-bordered w-full mb-3">
+      <option value="">全部站點</option>
+      ${stations.map(s => `<option value="${s.station_id}">${s.station_id}</option>`).join("")}
+    </select>
+
+    <div id="mdReqList">
+      ${fixtures.map(f => renderRequirementCard(f)).join("")}
+    </div>
+  `;
+}
+
+function renderRequirementCard(f) {
+  return `
+    <div class="border rounded-xl p-3 bg-gray-50 text-sm space-y-1 mb-2">
+      <div><b>站點：</b>${f.station_id}</div>
+      <div><b>治具：</b>${f.fixture_id} - ${f.fixture_name || "-"}</div>
+      <div><b>需求數量：</b>${f.required_qty}</div>
+      <div><b>可用數量：</b>${f.available_qty ?? 0}</div>
+    </div>
+  `;
+}
+
+function renderCapacitySection(capacity) {
+  return `
+    <h3 class="text-lg font-semibold">最大可開站數</h3>
+    ${
+      capacity.length
+        ? capacity
+            .map(
+              c => `
+      <div class="border rounded-xl p-3 bg-green-50 text-sm space-y-1 mb-2">
+        <div><b>站點：</b>${c.station_id} ${
+                c.station_name ? `- ${c.station_name}` : ""
+              }</div>
+        <div><b>最大可開：</b>${c.max_station} 站</div>
+        <div class="text-xs text-gray-600">
+          (瓶頸治具：${c.bottleneck_fixture_id}，可提供 ${c.bottleneck_qty})
+        </div>
+      </div>
+    `
+            )
+            .join("")
+        : `<p class="text-gray-500 text-sm">未計算或無資料</p>`
+    }
+  `;
+}
+
+/* ============================================================
+ * 🟦 站點分類篩選功能
+ * ============================================================ */
+function initRequirementFilter(fixtures) {
+  const sel = document.getElementById("mdStationFilter");
+  if (!sel) return;
+
+  sel.onchange = () => {
+    const val = sel.value;
+    const container = document.getElementById("mdReqList");
+
+    const filtered =
+      val === "" ? fixtures : fixtures.filter(f => f.station_id === val);
+
+    container.innerHTML = filtered.map(f => renderRequirementCard(f)).join("");
+  };
+}
+
+
 
 window.openModelDetail = openModelDetail;

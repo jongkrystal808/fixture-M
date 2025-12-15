@@ -239,4 +239,21 @@ button {
     z-index: 10000;
 }
 
+.md-tab {
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 14px;
+  color: #444;
+}
+.md-tab-active {
+  background-color: #0d1321;
+  color: white;
+}
+.md-tab-panel {
+  padding-top: 6px;
+}
 
+
+html {
+  font-size: 18px; /* 原本大多是 16px */
+}

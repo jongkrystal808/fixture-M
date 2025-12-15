@@ -17,10 +17,17 @@ let ownerPageSize = 20;
 /* ============================================================
  * 初始化
  * ============================================================ */
-
 document.addEventListener("DOMContentLoaded", () => {
+
+  // 🔥 若頁面中沒有 ownerTable，直接跳過 owners 模組
+  if (!document.getElementById("ownerTable")) {
+    console.warn("Owner table not found — skip owners module init");
+    return;
+  }
+
   loadOwners();
 });
+
 
 /* ============================================================
  * 載入負責人列表
@@ -51,9 +58,10 @@ async function loadOwners() {
 /* ============================================================
  * 表格渲染
  * ============================================================ */
-
 function renderOwnerTable(rows) {
   const tbody = document.getElementById("ownerTable");
+  if (!tbody) return;   // 防呆
+
   tbody.innerHTML = "";
 
   if (!rows || rows.length === 0) {
@@ -71,11 +79,16 @@ function renderOwnerTable(rows) {
     const tr = document.createElement("tr");
 
     tr.innerHTML = `
+      <td class="py-2 px-2">${o.id}</td>
       <td class="py-2 px-2">${o.primary_owner}</td>
       <td class="py-2 px-2">${o.secondary_owner || ""}</td>
       <td class="py-2 px-2">${o.email || ""}</td>
-      <td class="py-2 px-2">${o.is_active ? "<span class='text-green-600'>啟用</span>" : "<span class='text-red-600'>停用</span>"}</td>
-      <td class="py-2 px-2">${o.note || ""}</td>
+      <td class="py-2 px-2">
+        ${o.is_active 
+          ? "<span class='text-green-600'>啟用</span>" 
+          : "<span class='text-red-600'>停用</span>"
+        }
+      </td>
       <td class="py-2 px-2 text-right">
         <button class="btn btn-xs btn-outline" onclick="openOwnerEdit(${o.id})">編輯</button>
         <button class="btn btn-xs btn-error" onclick="deleteOwner(${o.id})">刪除</button>
@@ -89,12 +102,13 @@ function renderOwnerTable(rows) {
 /* ============================================================
  * 分頁
  * ============================================================ */
-
 function renderOwnerPagination(total) {
-  const totalPages = Math.ceil(total / ownerPageSize);
   const box = document.getElementById("ownerPagination");
+  if (!box) return;  // 防呆
 
   box.innerHTML = "";
+
+  const totalPages = Math.ceil(total / ownerPageSize);
   if (totalPages <= 1) return;
 
   for (let i = 1; i <= totalPages; i++) {
@@ -106,10 +120,6 @@ function renderOwnerPagination(total) {
   }
 }
 
-function changeOwnerPage(p) {
-  ownerPage = p;
-  loadOwners();
-}
 
 /* ============================================================
  * 新增負責人
